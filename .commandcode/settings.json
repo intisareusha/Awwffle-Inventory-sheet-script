@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(dir:*)",
+      "Shell(for:*)",
+      "Shell(*.gs:*)",
+      "Shell(do:*)",
+      "Shell(@powershell:*)",
+      "Shell(if:*)",
+      "Shell(Config:*)",
+      "Shell(node --check %f.js)",
+      "Shell(cd /d \"%TEMP%\\gascheck\" && copy /y \"E:\\Rasha_Git\\Awwffle\\Build.gs\" \"Build.js\" >nul && node --check \"Build.js\" && echo OK Build)",
+      "Shell(node \"C:\\Users\\bmc\\AppData\\Local\\Temp\\commandcode\\E--Rasha-Git-Awwffle\\697185ef-2202-4b54-818a-2353201a9503\\scratchpad\\verify-units.js\")"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}
