@@ -281,12 +281,17 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
 
     if (already[canonical]) return;
 
+    // Opening quantity is in BASE units (gm/ml/p) while the rate is per kg / per
+    // litre / per piece. Dividing by 1000 for everything was wrong: a piece item
+    // such as Waffle Box (1,200 p at 5 each) would be valued at 6 instead of 6,000.
+    var openingValue = opening * ratePerBaseUnitForMigration_(canonical, rate);
+
     rows.push([
       canonical,
       cutOff,
       round2_(opening),
       rate,
-      round2_(opening / 1000 * (rate || 0)),   // value: base units are gm/ml; rate is per kg/l
+      round2_(openingValue),
       'Stock row ' + r._row,
       opening === 0 ? 'Fully explained by purchases — no opening layer'
                     : 'Pre-existing stock before the Bazar ledger began'
@@ -333,8 +338,132 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-checks against the source report sheets
+// Manual historical usage — README §17.3, §3.3
 // ---------------------------------------------------------------------------
+
+/**
+ * The source Stock sheet carries a hand-typed `Total Used` for the 26
+ * non-recipe-driven items (toppings and packaging), totalling 11,735 BDT of the
+ * 48,752.85 real used cost.
+ *
+ * That figure exists NOWHERE else. If it is not imported, every one of those items
+ * shows far too much stock and the used cost collapses. Recipe-driven items are
+ * skipped deliberately: their consumption is derived from Measurements x Batches,
+ * so importing their `Total Used` too would double-count it.
+ *
+ * Destination is `Adjustments`, not a new table: §13.C26 already defines manual
+ * usage as an Out adjustment, and it keeps theoretical consumption and actual
+ * usage separate by construction.
+ *
+ * These rows are dated to the migration cut-off end (the last day the source
+ * covers), because the source gives one total, not a per-day history.
+ */
+function migrateManualUsage_(stockSheet, bazarStats, recon, corrections) {
+  var records = readSourceRecords_(stockSheet, 1);
+
+  // End of the recorded period: the source's own last data day.
+  var endDate = toDate_('2026-11-16');
+
+  var already = {};
+  readRecords_(SHEETS.ADJUSTMENTS).forEach(function (r) {
+    var id = String(r['Adjustment ID'] || '');
+    if (id) already[id] = true;
+  });
+  var reRunGuard = {};
+
+  var rows = [];
+  var totalCost = 0;
+  var totalQty = 0;
+  var skipped = 0;
+  var recipeSkipped = 0;
+  var detail = [];
+
+  records.forEach(function (r) {
+    var rawName = String(r['Name'] === null ? '' : r['Name']).trim();
+    if (!rawName) return;
+
+    var canonical = resolveAlias_(rawName);
+    if (!canonical) return;
+
+    var item = findItem_(canonical);
+    if (!item) return;
+
+    var used = toNumber_(r['Total Used']);
+    var usedCost = toNumber_(r['Used Cost']);
+
+    // Recipe-driven usage is derived, so importing it would double-count (§3.3).
+    if (item.population === POPULATION.RECIPE) {
+      recipeSkipped++;
+      return;
+    }
+
+    // A zero used figure is a real fact but carries no quantity; skip the row
+    // rather than writing noise.
+    if (used === null || used <= 0) return;
+
+    // Re-run protection, keyed on item so a second run cannot double the usage.
+    reRunGuard[normaliseItemName_(canonical)] = true;
+    if (already['MIGRATED-USE-' + canonical]) {
+      skipped++;
+      return;
+    }
+
+    var unit = String(r['Unit'] || item.unit).trim();
+
+    rows.push([
+      'MIGRATED-USE-' + canonical,      // deterministic ID, safe on re-run
+      endDate,
+      canonical,
+      used,                              // as the source recorded it, in its unit
+      'Out',
+      'Historical usage imported from the source Stock sheet',
+      used,                              // already in base units in the source
+      new Date(),
+      'Source Total Used = ' + used + ' ' + unit +
+        '; source Used Cost = ' + (usedCost === null ? '' : usedCost)
+    ]);
+
+    totalQty += used;
+    if (usedCost !== null) totalCost += usedCost;
+    detail.push(canonical + ' ' + used);
+  });
+
+  appendRows_(SHEETS.ADJUSTMENTS, rows);
+
+  // --- Report ---
+  recon.push(reportRow_('Manual usage', 'Items with historical usage', 25, rows.length,
+    rows.length === 25,
+    rows.length === 25 ? detail.join('; ')
+      : 'Expected 25 manual items with usage; got ' + rows.length));
+
+  recon.push(reportRow_('Manual usage', 'Recipe items skipped (derived)', 17, recipeSkipped,
+    recipeSkipped === 17,
+    'Their usage comes from Measurements x Batches — importing it would double-count'));
+
+  recon.push(reportRow_('Manual usage', 'Historical used cost imported', 11735,
+    round2_(totalCost), Math.abs(totalCost - 11735) < 1,
+    'Source Used Cost for the 25 manual items. This is a SOURCE-RATE figure; ' +
+    'the Stock view revalues it at weighted average (§6.2.1), so it will differ there.'));
+
+  if (skipped) {
+    recon.push(reportRow_('Manual usage', 'Already imported (skipped)', 0, skipped, true,
+      'Re-run protection: these adjustment IDs already existed'));
+  }
+
+  corrections.push({
+    section: 'Manual usage',
+    check: 'Hand-typed Total Used for 25 toppings/packaging items',
+    from: 'A single running total per item in the Stock sheet',
+    to: 'One dated Out adjustment per item, imported once',
+    reason: '§17.3 — this consumption has no other home. Without it every manual ' +
+            'item would show too much stock.',
+    affectsValues: false
+  });
+
+  return { imported: rows.length, skipped: skipped, recipeSkipped: recipeSkipped,
+           totalCost: round2_(totalCost), totalQty: totalQty };
+}
+
 
 /** Confirms the imported figures reproduce the source summary values. */
 function verifyAgainstSourceReports_(src, stats, recon, corrections) {

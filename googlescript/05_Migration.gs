@@ -160,13 +160,18 @@ function migrateFromWorkbook_(source) {
   // 6. Opening stock snapshot as of the cut-off date (§6.3)
   stats.opening = migrateOpeningStock_(src.stock, stats.bazar, recon, corrections);
 
-  // 7. Cross-checks against the source report sheets
+  // 7. Manual historical usage (toppings/packaging) as dated adjustments.
+  //    Without this the 25 manual items would each show far too much stock,
+  //    because their usage never existed anywhere except the old Stock column.
+  stats.manualUsage = migrateManualUsage_(src.stock, stats.bazar, recon, corrections);
+
+  // 8. Cross-checks against the source report sheets
   stats.checks = verifyAgainstSourceReports_(src, stats, recon, corrections);
 
-  // 8. Write the report
+  // 9. Write the report
   writeReconciliationReport_(stats, recon, corrections, startedAt);
 
-  // 9. Set the guard
+  // 10. Set the guard
   setSetting_('migration_completed_at', Utilities.formatDate(startedAt,
     Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
 

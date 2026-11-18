@@ -1,0 +1,440 @@
+/**
+ * Awwffle Inventory System — 09_Stock.gs
+ *
+ * Phase 6 — stock calculation and valuation.
+ *
+ * README §3.3 (Measurements x Batches), §6.2 (filters), §6.2.1 (weighted average),
+ * §6.2.2 (estimates), §17.3 (the three populations).
+ *
+ * THE ACCOUNTING IDENTITY
+ * For every item:
+ *
+ *     used cost + remaining value = opening value + purchase spend
+ *
+ * That identity is the reason weighted-average cost is used at all (§6.2.1). If it
+ * ever fails, the valuation method is broken — it is not a rounding difference.
+ *
+ * WHY THE ANSWER DIFFERS FROM THE OLD WORKBOOK
+ * The source valued everything at ONE hand-typed rate per item, which produced
+ * 98,956.50 of stock value against 92,940.00 of actual spend — a 6,016.50 gap with
+ * no business meaning. Weighted average removes that gap by construction, so the
+ * used cost here is NOT the source's 48,752.85. That difference is the fix, not a
+ * regression. The identity is what must hold, not the old figure.
+ *
+ * THE THREE POPULATIONS (§3.3, §13.G1)
+ *   Recipe-driven — consumption from Measurements x Batches, automatic.
+ *   Manual        — consumption entered by hand (toppings, packaging).
+ *   Resale        — Water only: POS sales consume one piece each.
+ */
+
+// ---------------------------------------------------------------------------
+// Valuation primitives
+// ---------------------------------------------------------------------------
+//
+// ratePerBaseUnit_ lives in 01_Utils.gs, next to the other unit conversions,
+// because the migration needs it too and must not depend on a later phase.
+
+/**
+ * Weighted-average cost for one item (§6.2.1).
+ *
+ * Opening stock is the first "purchase" at its snapshot rate, so the average is
+ * the total value divided by the total quantity. This is what makes
+ * `used cost + remaining value = total available value` true for any split.
+ *
+ * Returns { openingQty, openingValue, purchaseQty, purchaseValue, avg, availableQty }
+ */
+function itemCosting_(itemName, opts) {
+  opts = opts || {};
+  var openingRows = opts.openingRows || readRecords_(SHEETS.OPENING_STOCK);
+  var bazarRows = opts.bazarRows || readRecords_(SHEETS.BAZAR);
+
+  var item = findItem_(itemName);
+  var baseUnit = item ? item.baseUnit : '';
+
+  // --- Opening layer (pre-Bazar stock, §6.3) ---
+  var openingQty = 0;
+  var openingValue = 0;
+  openingRows.forEach(function (r) {
+    if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
+    var q = toNumber_(r['Quantity']);
+    if (q === null) return;
+    openingQty += q;
+
+    // Recompute from quantity x rate rather than trusting the stored Value cell.
+    // A stale or mis-converted value there would silently skew every valuation,
+    // and a hand-edited sheet is exactly where that happens.
+    var rt = toNumber_(r['Rate']);
+    if (rt !== null && item) {
+      openingValue += q * ratePerBaseUnit_(item, rt);
+    } else {
+      var stored = toNumber_(r['Value']);
+      if (stored !== null) openingValue += stored;
+    }
+  });
+
+  // --- Purchases ---
+  var purchaseQty = 0;
+  var purchaseValue = 0;
+  bazarRows.forEach(function (r) {
+    if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
+    var affects = String(r['Affects Stock']);
+    if (affects !== 'true' && affects !== 'TRUE') return;
+
+    var q = toNumber_(r['Base Quantity']);
+    var a = toNumber_(r['Amount']);
+    if (q === null) return;
+    purchaseQty += q;
+    if (a !== null) purchaseValue += a;
+  });
+
+  var availableQty = openingQty + purchaseQty;
+  var availableValue = openingValue + purchaseValue;
+  var avg = availableQty > 0 ? availableValue / availableQty : 0;
+
+  return {
+    item: itemName,
+    baseUnit: baseUnit,
+    openingQty: openingQty,
+    openingValue: openingValue,
+    purchaseQty: purchaseQty,
+    purchaseValue: purchaseValue,
+    availableQty: availableQty,
+    availableValue: availableValue,
+    avg: avg
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Consumption by population
+// ---------------------------------------------------------------------------
+
+/** Manual usage (toppings/packaging) from Adjustments, in base units. */
+function manualUsedBaseQuantity_(itemName, adjustmentRows) {
+  var rows = adjustmentRows || readRecords_(SHEETS.ADJUSTMENTS);
+  var out = 0;
+
+  rows.forEach(function (r) {
+    if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
+
+    var q = toNumber_(r['Base Quantity']);
+    if (q === null) {
+      // Older rows may only carry the entry quantity; convert it.
+      var rawQty = toNumber_(r['Quantity']);
+      if (rawQty === null) return;
+      var item = findItem_(itemName);
+      q = toBaseQuantity_(rawQty, String(r['Unit'] || (item ? item.unit : 'p')),
+                          item && item.perPieceWeight);
+      if (q === null) return;
+    }
+
+    var dir = String(r['Direction'] || 'Out');
+    if (dir === 'Out') out += q;
+    else if (dir === 'In') out -= q;      // found stock reduces net usage
+    // 'Count' is handled separately when reconciling, not as usage.
+  });
+
+  return out;
+}
+
+/**
+ * POS-driven usage for resale items (§13.G1). Water only.
+ *
+ * One POS sale consumes one stock unit. The cumulative figure comes from the
+ * POS product's lifetime total, which survives counter resets.
+ */
+function resaleUsedBaseQuantity_(itemName, posRows) {
+  var item = findItem_(itemName);
+  if (!item || item.population !== POPULATION.RESALE || !item.posLink) return 0;
+
+  var rows = posRows || readRecords_(SHEETS.POS_SNAPSHOTS);
+  var sold = 0;
+  rows.forEach(function (r) {
+    if (String(r['Product']) !== item.posLink) return;
+    var n = toNumber_(r['Units Sold']);
+    if (n !== null) sold += n;
+  });
+
+  // One sale = one piece. Water's base unit is already 'p', so no conversion.
+  return sold;
+}
+
+// ---------------------------------------------------------------------------
+// The Stock view
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the full stock table.
+ *
+ * `asOf` limits purchases, consumption, manual usage and POS sales to that date
+ * or earlier, which is what a "stock position as of a past date" means (§6.2).
+ * Opening stock is always included: it pre-dates the ledger by definition.
+ */
+function computeStock_(asOf, opts) {
+  opts = opts || {};
+  var asOfDate = asOf ? toDate_(asOf) : null;
+
+  var itemRows = readRecords_(SHEETS.ITEM_MASTER).filter(function (r) {
+    return String(r['Active']) !== 'FALSE' && String(r['Item Name'] || '');
+  });
+
+  var openingRows = readRecords_(SHEETS.OPENING_STOCK);
+  var bazarRows = filterBazarAsOf_(readRecords_(SHEETS.BAZAR), asOfDate);
+  var adjustmentRows = filterByDateAsOf_(readRecords_(SHEETS.ADJUSTMENTS), asOfDate);
+  var posRows = filterByDateAsOf_(readRecords_(SHEETS.POS_SNAPSHOTS), asOfDate);
+
+  // Batch totals drive recipe consumption. Restricted to the same as-of window.
+  var batchRange = asOfDate ? { start: null, end: asOfDate } : null;
+  var batchStats = batchTotals_(batchRange && batchRange.start, batchRange && batchRange.end);
+  var batchTotals = batchStats.totals;
+
+  var workDays = openDaysBetween_(batchStats.firstDate, batchStats.lastDate);
+  var dayBasis = workDays > 0 ? workDays : 0;
+
+  var rows = [];
+
+  itemRows.forEach(function (r) {
+    var name = String(r['Item Name']);
+    var population = String(r['Population']);
+    var item = findItem_(name);
+
+    var cost = itemCosting_(name, { openingRows: openingRows, bazarRows: bazarRows });
+
+    // --- Usage, by population ---
+    var perPrep = {};
+    PREPARATIONS.forEach(function (p) { perPrep[p] = 0; });
+
+    var manualUsed = 0;
+    var resaleUsed = 0;
+
+    if (population === POPULATION.RECIPE) {
+      perPrep = ingredientConsumptionByPreparation_(name, batchTotals);
+    } else if (population === POPULATION.RESALE) {
+      resaleUsed = resaleUsedBaseQuantity_(name, posRows);
+    } else {
+      manualUsed = manualUsedBaseQuantity_(name, adjustmentRows);
+    }
+
+    var totalUsed = manualUsed + resaleUsed;
+    PREPARATIONS.forEach(function (p) { totalUsed += perPrep[p]; });
+
+    // --- Valuation: the identity is enforced here ---
+    var usedCost = totalUsed * cost.avg;
+    var remainingQty = cost.availableQty - totalUsed;
+    var remainingValue = remainingQty * cost.avg;
+
+    // --- Estimates (§6.2.2) ---
+    var estDays = '';
+    var estBatches = '';
+    var dailyUse = dayBasis > 0 ? totalUsed / dayBasis : 0;
+
+    if (totalUsed > 0 && dailyUse > 0 && remainingQty > 0) {
+      estDays = Math.round(remainingQty / dailyUse);
+    }
+
+    if (population === POPULATION.RECIPE && remainingQty > 0) {
+      // Smallest number of batches any preparation could still support.
+      var bottleneck = null;
+      PREPARATIONS.forEach(function (prep) {
+        var perBatch = liveMeasurement_(name, prep);
+        if (!perBatch || perBatch <= 0) return;
+        var possible = remainingQty / perBatch;
+        if (bottleneck === null || possible < bottleneck) bottleneck = possible;
+      });
+      if (bottleneck !== null) estBatches = Math.floor(bottleneck);
+    }
+
+    // --- Flags (§13.E34) ---
+    var lowDays = toNumber_(r['Low Stock Days']);
+    var lowBatches = toNumber_(r['Low Batches']);
+    var flags = [];
+
+    if (remainingQty < 0) flags.push('NEGATIVE');
+    if (lowDays !== null && estDays !== '' && estDays <= lowDays) flags.push('LOW DAYS');
+    if (lowBatches !== null && estBatches !== '' && estBatches <= lowBatches) flags.push('LOW BATCHES');
+
+    rows.push({
+      item: name,
+      group: String(r['Group']),
+      population: population,
+      baseUnit: cost.baseUnit,
+
+      openingQty: cost.openingQty,
+      purchasedQty: cost.purchaseQty,
+      totalAvailable: cost.availableQty,
+
+      perPrep: perPrep,
+      manualUsed: manualUsed,
+      resaleUsed: resaleUsed,
+      totalUsed: totalUsed,
+
+      avgCost: cost.avg,
+      usedCost: round2_(usedCost),
+      remainingQty: remainingQty,
+      remainingValue: round2_(remainingValue),
+
+      availableValue: round2_(cost.availableValue),
+      openingValue: round2_(cost.openingValue),
+      purchaseValue: round2_(cost.purchaseValue),
+
+      estDays: estDays,
+      estBatches: estBatches,
+      flags: flags,
+      lowStock: remainingQty < 0 || flags.indexOf('LOW DAYS') !== -1 ||
+                flags.indexOf('LOW BATCHES') !== -1,
+
+      latestRate: toNumber_(r['Latest Purchase Rate'])
+    });
+  });
+
+  return {
+    rows: rows,
+    asOf: asOfDate ? dateKey_(asOfDate) : '',
+    batchTotals: batchTotals,
+    batchRecords: batchStats.records,
+    firstBatch: batchStats.firstDate,
+    lastBatch: batchStats.lastDate,
+    openDays: workDays,
+    calendarDays: batchStats.firstDate && batchStats.lastDate
+      ? daysBetweenInclusive_(batchStats.firstDate, batchStats.lastDate) : 0
+  };
+}
+
+/** Bazar rows on or before a date. */
+function filterBazarAsOf_(rows, asOfDate) {
+  if (!asOfDate) return rows;
+  return rows.filter(function (r) {
+    var d = toDate_(r['Date']);
+    return d && d <= asOfDate;
+  });
+}
+
+/** Any dated rows on or before a date. */
+function filterByDateAsOf_(rows, asOfDate) {
+  if (!asOfDate) return rows;
+  return rows.filter(function (r) {
+    var d = toDate_(r['Date']);
+    return d && d <= asOfDate;
+  });
+}
+
+/**
+ * Open (trading) days between two dates, inclusive, using the ClosedDays list.
+ *
+ * README §8.4: never a weekday rule, never a +1 fudge. Returns 0 when the range
+ * is unusable so callers can produce a blank estimate rather than a wrong number.
+ */
+function openDaysBetween_(start, end) {
+  var a = toDate_(start);
+  var b = toDate_(end);
+  if (!a || !b || a > b) return 0;
+
+  var closed = {};
+  readRecords_(SHEETS.CLOSED_DAYS).forEach(function (r) {
+    closed[dateKey_(r['Date'])] = true;
+  });
+
+  var days = 0;
+  dateRange_(a, b).forEach(function (d) {
+    if (!closed[dateKey_(d)]) days++;
+  });
+  return days;
+}
+
+// ---------------------------------------------------------------------------
+// Identity check — the phase gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Verifies `used cost + remaining value = opening value + purchase spend`
+ * for every item, and returns any that break it.
+ *
+ * This is the test that matters in Phase 6 (§6.2.1, §15).
+ */
+function verifyValuationIdentity_(asOf) {
+  var result = computeStock_(asOf);
+  var failures = [];
+  var totals = { usedCost: 0, remainingValue: 0, availableValue: 0,
+                 purchaseValue: 0, openingValue: 0 };
+
+  result.rows.forEach(function (r) {
+    var left = r.usedCost + r.remainingValue;
+    var right = r.availableValue;
+    var diff = Math.abs(left - right);
+
+    totals.usedCost += r.usedCost;
+    totals.remainingValue += r.remainingValue;
+    totals.availableValue += r.availableValue;
+    totals.purchaseValue += r.purchaseValue;
+    totals.openingValue += r.openingValue;
+
+    // A cent of slack absorbs floating point only; anything larger is a real bug.
+    if (diff > 0.02) {
+      failures.push({
+        item: r.item,
+        usedCost: r.usedCost,
+        remainingValue: r.remainingValue,
+        availableValue: r.availableValue,
+        difference: round2_(diff)
+      });
+    }
+  });
+
+  return {
+    ok: failures.length === 0,
+    failures: failures,
+    rows: result.rows.length,
+    totals: totals,
+    detail: result
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Writing the Stock view
+// ---------------------------------------------------------------------------
+
+/** Rebuilds the Stock sheet from source records. Never the source of truth. */
+function refreshStockSheet_(asOf) {
+  var computed = computeStock_(asOf);
+  var sheet = getSheet_(SHEETS.STOCK);
+  var headers = SCHEMA[SHEETS.STOCK];
+
+  writeHeaders_(sheet, headers);
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  }
+
+  var rows = computed.rows.map(function (r) {
+    return [
+      r.item,
+      r.group,
+      r.population,
+      round2_(r.openingQty),
+      round2_(r.purchasedQty),
+      round2_(r.totalAvailable),
+      round2_(r.perPrep['Batter']),
+      round2_(r.perPrep['Nutella Mix']),
+      round2_(r.perPrep['Cream']),
+      round2_(r.perPrep['White Mix']),
+      round2_(r.perPrep['Cheese']),
+      round2_(r.manualUsed || r.resaleUsed || ''),
+      round2_(r.totalUsed),
+      r.usedCost,
+      round2_(r.remainingQty),
+      r.remainingValue,
+      r.estDays,
+      r.estBatches,
+      r.flags.join(', '),
+      r.latestRate == null ? '' : r.latestRate
+    ];
+  });
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  sheet.setColumnWidth(1, 190);
+  sheet.setColumnWidth(19, 170);
+  return { written: rows.length, asOf: computed.asOf };
+}

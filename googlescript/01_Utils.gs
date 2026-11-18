@@ -217,6 +217,38 @@ function amountFor_(quantity, unit, rate) {
   return round2_((q / rateDivisor_(unit)) * r);
 }
 
+/**
+ * Price per BASE unit (gm / ml / p) from an entry rate.
+ *
+ * The rate is always per kg / per litre / per piece (D7), while base quantities
+ * are gm / ml / p. This is the conversion that keeps valuation honest — get it
+ * wrong and every value is out by 1000x, or by the per-piece weight.
+ *
+ * It lives here, next to the other unit conversions, because BOTH the migration
+ * and the Stock valuation need it. Putting it in the Stock file made the
+ * migration depend on a later phase, which is the wrong direction.
+ */
+function ratePerBaseUnit_(item, rate) {
+  var r = toNumber_(rate);
+  if (r === null) return 0;
+  if (!item) return 0;
+
+  var unit = item.unit;
+  if (unit === 'kg' || unit === 'l') return r / 1000;   // per gm / per ml
+  if (unit === 'p') {
+    // A piece with a known weight (Nutella 350 gm, Whipped Cream 1000 gm) still
+    // has its rate per PIECE, so dividing by the weight gives per-gram.
+    if (item.perPieceWeight && item.perPieceWeight > 1) return r / item.perPieceWeight;
+    return r;                                           // a true count
+  }
+  return r / 1000;                                      // gm/ml display, rate per kg
+}
+
+/** Rate per base unit, resolved from an item name. Used by migration. */
+function ratePerBaseUnitForMigration_(itemName, rate) {
+  return ratePerBaseUnit_(findItem_(itemName), rate);
+}
+
 /** Quantity expressed in the item's base unit. */
 function toBaseQuantity_(quantity, unit, perPieceWeight) {
   var q = toNumber_(quantity);

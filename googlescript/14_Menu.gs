@@ -23,6 +23,9 @@ function installMenu_() {
   menu.addSubMenu(entry);
 
   menu.addSeparator();
+  menu.addItem('Refresh stock view', 'menuRefreshStock');
+  menu.addItem('Check stock valuation', 'menuVerifyStock');
+  menu.addSeparator();
   menu.addItem('Import historical data', 'menuRunMigration');
   menu.addItem('Open migration report', 'menuOpenMigrationReport');
   menu.addSeparator();
@@ -99,4 +102,49 @@ function menuOpenBatchForm() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_Batches')
     .setTitle('Daily batches');
   SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// ---------------------------------------------------------------------------
+// Stock
+// ---------------------------------------------------------------------------
+
+function menuRefreshStock() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'Refresh stock view',
+    'Rebuilds the Stock tab from purchases, batches and adjustments.\n\n' +
+    'The Stock tab is a calculated view — nothing you type there is kept.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (answer !== ui.Button.OK) return;
+
+  var res = refreshStockSheet_();
+  toast_(res.written + ' items valued.', 'Stock refreshed');
+}
+
+function menuVerifyStock() {
+  var check = verifyValuationIdentity_();
+  var ui = SpreadsheetApp.getUi();
+
+  var lines = [
+    'Items valued: ' + check.rows,
+    '',
+    'Used cost + remaining value must equal what the stock is worth.',
+    'Available value: ' + round2_(check.totals.availableValue) + ' BDT'
+  ];
+
+  if (check.ok) {
+    lines.push('', 'Every item reconciles. No gaps.');
+    ui.alert('Stock valuation — OK', lines.join('\n'), ui.ButtonSet.OK);
+    return;
+  }
+
+  lines.push('', check.failures.length + ' item(s) do NOT reconcile:');
+  check.failures.slice(0, 8).forEach(function (f) {
+    lines.push('  ' + f.item + ': gap ' + f.difference + ' BDT');
+  });
+  if (check.failures.length > 8) {
+    lines.push('  ... and ' + (check.failures.length - 8) + ' more');
+  }
+  ui.alert('Stock valuation — PROBLEM', lines.join('\n'), ui.ButtonSet.OK);
 }

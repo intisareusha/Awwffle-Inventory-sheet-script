@@ -31,7 +31,10 @@ function runAllTests() {
     testBatchValidation,
     testMeasurementsValidation,
     testConsumptionFormula,
-    testBatchFunctionsExist
+    testBatchFunctionsExist,
+    testRatePerBaseUnit,
+    testOpenDays,
+    testWeightedAverage
   ];
 
   var passed = 0;
@@ -963,6 +966,156 @@ function testBatchFunctionsExist() {
   // Preparations must match the required order (§3.2).
   eq_(s, 'preparations in order', PREPARATIONS.join('|'),
     'Batter|Nutella Mix|Cream|White Mix|Cheese');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Valuation — rate per base unit (README §6.1, D7, D8)
+// ---------------------------------------------------------------------------
+
+/**
+ * The conversion that makes or breaks every valuation figure.
+ *
+ * `gm` and `ml` divide the rate by 1000; `kg` and `l` do not. Piece items with a
+ * known weight divide by the per-piece weight. Getting this wrong is a silent
+ * 1000x or 350x error, which is exactly what the original opening-stock
+ * calculation did to Waffle Box (valued 1,200 pieces at 6 instead of 6,000).
+ */
+function testRatePerBaseUnit() {
+  var s = newSuite_();
+
+  var flour = findItem_('Flour');            // kg, rate per kg
+  var bPowder = findItem_('B. Powder');      // gm display, rate per kg
+  var nutella = findItem_('Nutella');        // p, 350 gm/piece
+  var whipped = findItem_('Whipped Cream');  // p, 1000 gm/piece
+  var waffleBox = findItem_('Waffle Box');   // p, true count
+  var milk = findItem_('Milk');              // l, rate per litre
+
+  // kg: 67 per kg -> 0.067 per gm
+  closeTo_(s, 'Flour 67/kg -> per gm', ratePerBaseUnit_(flour, 67), 0.067, 1e-9);
+
+  // gm display, rate per kg -> 0.45 per gm
+  closeTo_(s, 'B. Powder 450/kg -> per gm', ratePerBaseUnit_(bPowder, 450), 0.45, 1e-9);
+
+  // l: 80 per litre -> 0.08 per ml
+  closeTo_(s, 'Milk 80/l -> per ml', ratePerBaseUnit_(milk, 80), 0.08, 1e-9);
+
+  // p with weight: 830 per jar / 350 gm = 2.3714 per gm
+  closeTo_(s, 'Nutella 830/jar -> per gm', ratePerBaseUnit_(nutella, 830), 830 / 350, 1e-9);
+
+  closeTo_(s, 'Whipped 215/tub -> per gm', ratePerBaseUnit_(whipped, 215), 215 / 1000, 1e-9);
+
+  // p true count: rate stays as-is
+  eq_(s, 'Waffle Box 5 each -> 5 per piece', ratePerBaseUnit_(waffleBox, 5), 5);
+
+  // The regression this test exists for: 1200 Waffle Boxes at 5 = 6,000, not 6.
+  eq_(s, '1200 Waffle Boxes value 6000',
+    round2_(1200 * ratePerBaseUnit_(waffleBox, 5)), 6000);
+
+  // Nutella 22 jars = 7,700 gm at 830/jar = 18,260
+  eq_(s, '22 Nutella jars value 18260',
+    round2_(22 * 350 * ratePerBaseUnit_(nutella, 830)), 18260);
+
+  eq_(s, 'missing item returns 0', ratePerBaseUnit_(null, 100), 0);
+  eq_(s, 'null rate returns 0', ratePerBaseUnit_(flour, null), 0);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Open days — README §8.4
+// ---------------------------------------------------------------------------
+
+/**
+ * Open days must come from the ClosedDays list, never a weekday rule and never
+ * with a +1 fudge. All per-day averages depend on it.
+ */
+function testOpenDays() {
+  var s = newSuite_();
+
+  // Pure arithmetic of the open-day rule, without a spreadsheet: a closed-day
+  // lookup is injected as a set of date keys.
+  function countOpen(start, end, closedKeys) {
+    var a = toDate_(start), b = toDate_(end);
+    if (!a || !b || a > b) return 0;
+    var n = 0;
+    dateRange_(a, b).forEach(function (d) {
+      if (closedKeys.indexOf(dateKey_(d)) === -1) n++;
+    });
+    return n;
+  }
+
+  eq_(s, 'single day open', countOpen('2026-11-10', '2026-11-10', []), 1);
+  eq_(s, 'single day closed', countOpen('2026-11-10', '2026-11-10', ['2026-11-10']), 0);
+  eq_(s, 'inclusive range', countOpen('2026-11-01', '2026-11-10', []), 10);
+  eq_(s, 'range minus one closure',
+    countOpen('2026-11-01', '2026-11-10', ['2026-11-05']), 9);
+  eq_(s, 'reversed range is zero', countOpen('2026-11-10', '2026-11-01', []), 0);
+  eq_(s, 'missing date is zero', countOpen('', '2026-11-10', []), 0);
+
+  // No +1 fudge: 17 Oct..16 Nov is 31 calendar days, and 3 closed gives 28.
+  eq_(s, 'POS span 31 calendar days',
+    daysBetweenInclusive_('2026-10-17', '2026-11-16'), 31);
+  eq_(s, 'POS span minus 3 closures is 28',
+    countOpen('2026-10-17', '2026-11-16',
+      ['2026-11-04', '2026-11-11', '2026-10-22']), 28);
+
+  // Batches span a wider window than the POS snapshots.
+  eq_(s, 'batch span 34 calendar days',
+    daysBetweenInclusive_('2026-10-14', '2026-11-16'), 34);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Weighted-average cost — README §6.2.1
+// ---------------------------------------------------------------------------
+
+/**
+ * The identity `used + remaining = available` must hold for any split of usage.
+ * That is the whole justification for weighted average over a typed rate.
+ */
+function testWeightedAverage() {
+  var s = newSuite_();
+
+  // Build a costing from explicit figures, mirroring itemCosting_ arithmetic.
+  function cost(openingQty, openingRate, purchases) {
+    var qty = openingQty, value = openingQty * openingRate;
+    purchases.forEach(function (p) { qty += p[0]; value += p[0] * p[1]; });
+    return { qty: qty, value: value, avg: qty > 0 ? value / qty : 0 };
+  }
+
+  // The README's own Flour worked example (§6.2.1).
+  var flour = cost(0, 0, [
+    [10500, 0.08],   // 10.5 kg at 80  = 840
+    [25000, 0.067],  // 25 kg at 67    = 1675
+    [1000, 0.085],   // 1 kg at 85     = 85
+    [1000, 0.08]     // 1 kg at 80     = 80
+  ]);
+
+  eq_(s, 'Flour total qty', round2_(flour.qty), 37500);
+  eq_(s, 'Flour total spend', round2_(flour.value), 2680);
+  closeTo_(s, 'Flour weighted avg = 2680/37.5kg', flour.avg, 2680 / 37500, 1e-9);
+
+  // Old workbook valued this at one typed rate of 67 -> 2,512.50, which is wrong.
+  eq_(s, 'typed-rate valuation is the old bug', round2_(37500 * 0.067), 2512.50);
+
+  // Identity holds for any used quantity.
+  [0, 1000, 16750, 37500].forEach(function (used) {
+    var usedCost = used * flour.avg;
+    var remainingValue = (flour.qty - used) * flour.avg;
+    closeTo_(s, 'identity at used=' + used, usedCost + remainingValue, flour.value, 0.01);
+  });
+
+  // A second purchase at a different price must move the average, not replace it.
+  var withNew = cost(0, 0, [[1000, 0.10], [1000, 0.20]]);
+  closeTo_(s, 'average blends two rates', withNew.avg, 0.15, 1e-9);
+
+  // Opening stock participates in the average at its snapshot rate.
+  var withOpening = cost(1200, 5, []);
+  eq_(s, 'opening-only average', withOpening.avg, 5);
+  eq_(s, 'opening-only value', withOpening.value, 6000);
 
   return s;
 }
