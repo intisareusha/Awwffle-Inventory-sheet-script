@@ -22,7 +22,10 @@ function runAllTests() {
     testMeasurementMatrix,
     testExpenseClassification,
     testDailyWaffleParsing,
-    testReportRowFormatting
+    testReportRowFormatting,
+    testBazarValidation,
+    testBazarDuplicates,
+    testSidebarContract
   ];
 
   var passed = 0;
@@ -444,6 +447,212 @@ function testReportRowFormatting() {
   // Non-numeric expectations must not produce a bogus numeric difference.
   var text = reportRow_('POS', 'Sold == prev - curr', 'all rows', 'all rows', true, '');
   eq_(s, 'text row status', text[5], 'OK');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Bazar validation — README §5, §11, §13.C18
+// ---------------------------------------------------------------------------
+
+/**
+ * All of these run against an empty existing-record list, so they exercise pure
+ * validation with no spreadsheet access.
+ */
+function testBazarValidation() {
+  var s = newSuite_();
+  var none = [];
+
+  var valid = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#T1',
+    lines: [{ item: 'Flour', quantity: 10, unit: 'kg', rate: 80 }]
+  }, none);
+  eq_(s, 'valid invoice accepted', valid.ok, true);
+  eq_(s, 'valid invoice total', valid.total, 800);
+  eq_(s, 'one row built', valid.rows.length, 1);
+
+  // Derived columns.
+  var row = valid.rows[0];
+  eq_(s, 'amount derived not typed', row[8], 800);
+  eq_(s, 'base qty kg->gm', row[12], 10000);
+  eq_(s, 'inventory row affects stock', row[13], true);
+  eq_(s, 'canonical item stored', row[3], 'Flour');
+
+  // gm/ml divide the rate; kg/l/p do not (D7).
+  var gm = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+    lines: [{ item: 'B. Powder', quantity: 800, unit: 'gm', rate: 450 }]
+  }, none);
+  eq_(s, 'gm amount divides by 1000', gm.total, 360);
+  eq_(s, 'gm base qty identity', gm.rows[0][12], 800);
+
+  // Piece item with a known per-piece weight (D8).
+  var nutella = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+    lines: [{ item: 'Nutella', quantity: 2, unit: 'p', rate: 830 }]
+  }, none);
+  eq_(s, 'piece amount', nutella.total, 1660);
+  eq_(s, 'Nutella 2 pieces = 700 gm', nutella.rows[0][12], 700);
+
+  // Non-inventory: no stock impact, no item, amount is the money.
+  var salary = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: 'Salary',
+    lines: [{ expenseName: 'Monthly salary', quantity: 5000, unit: 'p', rate: 1 }]
+  }, none);
+  eq_(s, 'salary accepted', salary.ok, true);
+  eq_(s, 'salary amount', salary.total, 5000);
+  eq_(s, 'salary affects stock false', salary.rows[0][13], false);
+  eq_(s, 'salary has no item', salary.rows[0][3], '');
+  eq_(s, 'salary has no base qty', salary.rows[0][12], '');
+  eq_(s, 'salary keeps its name', salary.rows[0][4], 'Monthly salary');
+
+  // Rejections.
+  eq_(s, 'missing date rejected',
+    validateBazarInvoice_({ date: '', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Flour', quantity: 1, unit: 'kg', rate: 1 }] }, none).ok, false);
+
+  eq_(s, 'missing expense type rejected',
+    validateBazarInvoice_({ date: '2026-11-17', expenseType: '',
+      lines: [{ item: 'Flour', quantity: 1, unit: 'kg', rate: 1 }] }, none).ok, false);
+
+  eq_(s, 'no lines rejected',
+    validateBazarInvoice_({ date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [] }, none).ok, false);
+
+  eq_(s, 'zero quantity rejected',
+    validateBazarInvoice_({ date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Flour', quantity: 0, unit: 'kg', rate: 1 }] }, none).ok, false);
+
+  eq_(s, 'negative quantity rejected',
+    validateBazarInvoice_({ date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Flour', quantity: -5, unit: 'kg', rate: 80 }] }, none).ok, false);
+
+  eq_(s, 'unsupported unit rejected',
+    validateBazarInvoice_({ date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Flour', quantity: 5, unit: 'lb', rate: 80 }] }, none).ok, false);
+
+  eq_(s, 'pounds are not a unit', ENTRY_UNITS.indexOf('lb'), -1);
+
+  eq_(s, 'future date rejected',
+    validateBazarInvoice_({ date: '2099-01-01', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Flour', quantity: 5, unit: 'kg', rate: 80 }] }, none).ok, false);
+
+  // Unknown item must be rejected, never silently created (§5.3).
+  var unknown = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+    lines: [{ item: 'Unobtanium', quantity: 1, unit: 'kg', rate: 10 }]
+  }, none);
+  eq_(s, 'unknown item rejected', unknown.ok, false);
+  eq_(s, 'unknown item message names the master',
+    unknown.errors.join(' ').indexOf('item master') !== -1, true);
+
+  // Non-inventory needs a name.
+  eq_(s, 'non-inventory needs a name',
+    validateBazarInvoice_({ date: '2026-11-17', expenseType: 'Salary',
+      lines: [{ expenseName: '', quantity: 100, unit: 'p', rate: 1 }] }, none).ok, false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Bazar duplicate guard — README §11 "prevent duplicate submissions"
+// ---------------------------------------------------------------------------
+
+function testBazarDuplicates() {
+  var s = newSuite_();
+  var payload = {
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#T1',
+    lines: [{ item: 'Flour', quantity: 10, unit: 'kg', rate: 80 }]
+  };
+
+  // An identical existing line on the same date and ref.
+  var existing = [{
+    'Date': new Date(2026, 10, 17),
+    'Item': 'Flour', 'Expense Name': '',
+    'Quantity': 10, 'Unit': 'kg', 'Rate': 80, 'Ref': '#T1'
+  }];
+
+  var dup = validateBazarInvoice_(payload, existing);
+  eq_(s, 'duplicate rejected', dup.ok, false);
+  eq_(s, 'duplicate message mentions duplicate',
+    dup.errors.join(' ').indexOf('duplicate') !== -1, true);
+
+  // A different ref is a genuine second purchase of the same item.
+  var otherRef = {
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#T2',
+    lines: [{ item: 'Flour', quantity: 10, unit: 'kg', rate: 80 }]
+  };
+  eq_(s, 'same line different ref allowed', validateBazarInvoice_(otherRef, existing).ok, true);
+
+  // A different quantity is not a duplicate.
+  var otherQty = {
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#T1',
+    lines: [{ item: 'Flour', quantity: 12, unit: 'kg', rate: 80 }]
+  };
+  eq_(s, 'different quantity allowed', validateBazarInvoice_(otherQty, existing).ok, true);
+
+  // A different day is not a duplicate.
+  var otherDay = {
+    date: '2026-11-18', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#T1',
+    lines: [{ item: 'Flour', quantity: 10, unit: 'kg', rate: 80 }]
+  };
+  eq_(s, 'different date allowed', validateBazarInvoice_(otherDay, existing).ok, true);
+
+  // Alias spelling must still be recognised as the same item (§13.C20).
+  var aliasSpelling = {
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#T1',
+    lines: [{ item: 'Kitkat', quantity: 2, unit: 'p', rate: 70 }]
+  };
+  var kitkatExisting = [{
+    'Date': new Date(2026, 10, 17),
+    'Item': 'Kitkat', 'Quantity': 2, 'Unit': 'p', 'Rate': 70, 'Ref': '#T1'
+  }];
+  eq_(s, 'same item same ref duplicate', validateBazarInvoice_(aliasSpelling, kitkatExisting).ok, false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar contract — the bug that made every dropdown empty
+// ---------------------------------------------------------------------------
+
+/**
+ * `google.script.run` can only call PUBLIC functions: a name ending in `_` is
+ * invisible to it. A mismatch produces no error — the sidebar just renders empty,
+ * which looks like a UI bug and is hard to diagnose.
+ *
+ * This test pins the exact names the sidebar calls.
+ */
+function testSidebarContract() {
+  var s = newSuite_();
+
+  // The three names hard-coded in ui/Sidebar_Bazar.html.
+  eq_(s, 'getBazarFormOptions is public', typeof getBazarFormOptions, 'function');
+  eq_(s, 'addBazarInvoice is public', typeof addBazarInvoice, 'function');
+  eq_(s, 'bazarInvoices is public', typeof bazarInvoices, 'function');
+
+  // No trailing underscore on the callable boundary.
+  eq_(s, 'getBazarFormOptions has no trailing _', /_$/.test('getBazarFormOptions'), false);
+  eq_(s, 'addBazarInvoice has no trailing _', /_$/.test('addBazarInvoice'), false);
+  eq_(s, 'bazarInvoices has no trailing _', /_$/.test('bazarInvoices'), false);
+
+  // Status list drives the dropdown, and uses the owner's wording.
+  eq_(s, 'status list is Paid/Due', BAZAR_STATUSES.join('|'), 'Paid|Due');
+  eq_(s, 'status list excludes Unpaid', BAZAR_STATUSES.indexOf('Unpaid'), -1);
+
+  // An unknown status must be rejected rather than written.
+  var badStatus = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, status: 'Unpaid',
+    lines: [{ item: 'Flour', quantity: 1, unit: 'kg', rate: 80 }]
+  }, []);
+  eq_(s, 'unknown status rejected', badStatus.ok, false);
+
+  var goodStatus = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, status: 'Due',
+    lines: [{ item: 'Flour', quantity: 1, unit: 'kg', rate: 80 }]
+  }, []);
+  eq_(s, 'Due status accepted', goodStatus.ok, true);
+  eq_(s, 'Due status stored', goodStatus.rows[0][10], 'Due');
 
   return s;
 }

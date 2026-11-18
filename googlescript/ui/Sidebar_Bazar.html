@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input, select, textarea {
+      width: 100%; padding: 6px 7px; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 13px; font-family: inherit; background: #fff;
+    }
+    input:focus, select:focus { outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent; }
+    input[readonly] { background: #f1f3f4; color: #5f6368; }
+    .row { margin-bottom: 9px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+    .line {
+      border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px;
+      margin-bottom: 8px; background: #fafafa; position: relative;
+    }
+    .line .remove {
+      position: absolute; top: 5px; right: 6px; cursor: pointer; border: none;
+      background: none; color: #c5221f; font-size: 15px; line-height: 1; padding: 3px 5px;
+    }
+    .line-body { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .line-body .full { grid-column: 1 / -1; }
+    .amount { font-weight: 600; color: #188038; padding-top: 18px; font-size: 13px; }
+    button {
+      padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit;
+    }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button:disabled { opacity: .5; cursor: default; }
+    .actions { display: flex; gap: 8px; align-items: center; }
+    .actions .spacer { flex: 1; }
+    #total { font-size: 15px; font-weight: 600; }
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none; font-size: 12px; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; white-space: pre-wrap; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .hint { font-size: 11px; color: #5f6368; margin-top: 2px; }
+    .hidden { display: none !important; }
+    #summary { font-size: 11px; color: #5f6368; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h2>Record a purchase</h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="row grid3">
+    <div>
+      <label for="date">Date</label>
+      <input type="date" id="date">
+    </div>
+    <div>
+      <label for="expenseType">Expense type</label>
+      <select id="expenseType"></select>
+    </div>
+    <div>
+      <label for="status">Status</label>
+      <select id="status"></select>
+    </div>
+  </div>
+
+  <div class="row grid2">
+    <div>
+      <label for="ref">Invoice ref</label>
+      <input type="text" id="ref" list="refList" placeholder="e.g. #DCC03">
+      <datalist id="refList"></datalist>
+      <div class="hint">Same ref groups lines into one bill.</div>
+    </div>
+    <div>
+      <label for="paymentMethod">Payment method</label>
+      <select id="paymentMethod">
+        <option value="">(not recorded)</option>
+        <option>Cash</option>
+        <option>bKash</option>
+        <option>Bank</option>
+      </select>
+    </div>
+  </div>
+
+  <fieldset>
+    <legend>Lines on this invoice</legend>
+    <div id="lines"></div>
+    <button type="button" id="addLine">+ Add another item</button>
+  </fieldset>
+
+  <div class="actions">
+    <span>Invoice total: <span id="total">0.00</span> BDT</span>
+    <span class="spacer"></span>
+    <button type="button" id="save" class="primary">Save invoice</button>
+  </div>
+
+  <div class="row" style="margin-top:12px">
+    <div id="summary"></div>
+  </div>
+
+<script>
+  var OPTIONS = null;
+  var lineSeq = 0;
+
+  google.script.run
+    .withSuccessHandler(function (opts) {
+      OPTIONS = opts;
+      init();
+    })
+    .withFailureHandler(function (err) {
+      // A silent failure here used to leave every dropdown empty with no
+      // explanation. Say what went wrong instead.
+      showMsg('Could not load the form: ' +
+        (err && err.message ? err.message : err) +
+        '\n\nIf this mentions ItemMaster, run Awwffle > Setup / Update structure.', true);
+      document.getElementById('save').disabled = true;
+    })
+    .getBazarFormOptions();
+
+  function init() {
+    document.getElementById('date').value = OPTIONS.today;
+
+    var typeSel = document.getElementById('expenseType');
+    OPTIONS.expenseTypes.forEach(function (t) {
+      var o = document.createElement('option');
+      o.value = t.name; o.textContent = t.name;
+      typeSel.appendChild(o);
+    });
+    typeSel.value = OPTIONS.inventoryType;
+
+    // Status comes from config, so "Paid" / "Due" are defined in one place.
+    var statusSel = document.getElementById('status');
+    (OPTIONS.statuses || ['Paid', 'Due']).forEach(function (st) {
+      var o = document.createElement('option');
+      o.value = st; o.textContent = st;
+      statusSel.appendChild(o);
+    });
+
+    var refList = document.getElementById('refList');
+    OPTIONS.recentRefs.forEach(function (r) {
+      var o = document.createElement('option');
+      o.value = r;
+      refList.appendChild(o);
+    });
+
+    typeSel.addEventListener('change', onTypeChange);
+    document.getElementById('addLine').addEventListener('click', function () { addLine(); });
+    document.getElementById('save').addEventListener('click', save);
+    document.getElementById('ref').addEventListener('input', refreshSummary);
+
+    // Build the first line. onTypeChange() also runs and is responsible for
+    // creating a line if none exists, so calling addLine() here as well would
+    // create two.
+    onTypeChange();
+    refreshSummary();
+  }
+
+  function isInventory() {
+    return document.getElementById('expenseType').value === OPTIONS.inventoryType;
+  }
+
+  function onTypeChange() {
+    // Rebuild every open line. Values are discarded by a type switch anyway, so
+    // each rebuilt line is re-seeded with sensible defaults (its item's unit and
+    // latest rate). Previously this passed keepExisting=true, which suppressed
+    // seeding and left every line on unit "p" with a blank rate.
+    var container = document.getElementById('lines');
+    var count = container.children.length;
+    container.innerHTML = '';
+    for (var i = 0; i < count; i++) addLine();
+    if (!container.children.length) addLine();
+  }
+
+  function addLine() {
+    if (!OPTIONS) return;
+    var id = 'line' + (++lineSeq);
+    var div = document.createElement('div');
+    div.className = 'line';
+    div.id = id;
+
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'remove';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.title = 'Remove line';
+    removeBtn.addEventListener('click', function () {
+      div.remove();
+      recalc();
+    });
+    div.appendChild(removeBtn);
+
+    var body = document.createElement('div');
+    body.className = 'line-body';
+
+    if (isInventory()) {
+      body.innerHTML =
+        '<div class="full"><label>Item</label><select class="item"></select></div>' +
+        '<div><label>Quantity</label><input type="number" class="qty" step="any" min="0" placeholder="0"></div>' +
+        '<div><label>Unit</label><select class="unit"></select></div>' +
+        '<div><label>Rate</label><input type="number" class="rate" step="any" min="0" placeholder="0"></div>' +
+        '<div><label>Amount</label><div class="amount">0.00</div></div>';
+
+      var itemSel = body.querySelector('.item');
+      var groups = {};
+      OPTIONS.items.forEach(function (it) {
+        if (!groups[it.group]) {
+          groups[it.group] = document.createElement('optgroup');
+          groups[it.group].label = it.group;
+          itemSel.appendChild(groups[it.group]);
+        }
+        var o = document.createElement('option');
+        o.value = it.name; o.textContent = it.name;
+        o.dataset.unit = it.unit;
+        o.dataset.rate = it.latestRate == null ? '' : it.latestRate;
+        groups[it.group].appendChild(o);
+      });
+
+      var unitSel = body.querySelector('.unit');
+      OPTIONS.units.forEach(function (u) {
+        var o = document.createElement('option');
+        o.value = u; o.textContent = u;
+        unitSel.appendChild(o);
+      });
+
+      var rateInput = body.querySelector('.rate');
+
+      itemSel.addEventListener('change', function () {
+        var opt = itemSel.options[itemSel.selectedIndex];
+        if (opt) {
+          unitSel.value = opt.dataset.unit || 'kg';
+          if (opt.dataset.rate !== '') rateInput.value = opt.dataset.rate;
+        }
+        recalc();
+      });
+
+      body.querySelector('.qty').addEventListener('input', recalc);
+      rateInput.addEventListener('input', recalc);
+
+      div.appendChild(body);
+
+      // Seed the line with the selected item's unit and latest rate.
+      if (itemSel.options.length) {
+        itemSel.selectedIndex = 0;
+        var first = itemSel.options[0];
+        unitSel.value = first.dataset.unit || 'kg';
+        if (first.dataset.rate !== '') rateInput.value = first.dataset.rate;
+      }
+    } else {
+      body.innerHTML =
+        '<div class="full"><label>What was this for?</label>' +
+        '<input type="text" class="expName" placeholder="e.g. Monthly salary, Riyad"></div>' +
+        '<div><label>Amount (BDT)</label><input type="number" class="qty" step="any" min="0" placeholder="0"></div>' +
+        '<div><label>&nbsp;</label><div class="amount">0.00</div></div>';
+      div.appendChild(body);
+      body.querySelector('.qty').addEventListener('input', recalc);
+      body.querySelector('.expName').addEventListener('input', refreshSummary);
+    }
+
+    document.getElementById('lines').appendChild(div);
+    recalc();
+  }
+
+  function lineAmount(line) {
+    var qty = parseFloat(line.querySelector('.qty').value);
+    if (isNaN(qty)) return 0;
+    if (!isInventory()) {
+      // A non-inventory line records the money directly, so quantity IS the amount.
+      return qty;
+    }
+    var rate = parseFloat(line.querySelector('.rate').value);
+    if (isNaN(rate)) return 0;
+    var unit = line.querySelector('.unit').value;
+    // Matches amountFor_ in the backend: gm/ml divide the rate, kg/l/p do not.
+    var divisor = (unit === 'gm' || unit === 'ml') ? 1000 : 1;
+    return (qty / divisor) * rate;
+  }
+
+  function recalc() {
+    var total = 0;
+    Array.prototype.forEach.call(document.getElementById('lines').children, function (line) {
+      var amt = lineAmount(line);
+      var out = line.querySelector('.amount');
+      if (out) out.textContent = amt.toFixed(2);
+      total += amt;
+    });
+    document.getElementById('total').textContent = total.toFixed(2);
+    refreshSummary();
+    return total;
+  }
+
+  function refreshSummary() {
+    var ref = document.getElementById('ref').value.trim();
+    if (!ref || !OPTIONS) {
+      document.getElementById('summary').textContent =
+        OPTIONS && OPTIONS.recentRefs.length
+          ? 'Recent invoices: ' + OPTIONS.recentRefs.slice(0, 8).join(', ')
+          : '';
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function (rows) {
+        var mine = rows.filter(function (r) { return r.ref === ref; });
+        if (!mine.length) {
+          document.getElementById('summary').textContent =
+            'New invoice "' + ref + '" — no lines recorded yet.';
+          return;
+        }
+        var g = mine[0];
+        document.getElementById('summary').textContent =
+          'Invoice ' + ref + ': ' + g.lines + ' line(s), ' + g.total.toFixed(2) + ' BDT already recorded.';
+      })
+      .withFailureHandler(function () {})
+      .bazarInvoices();
+  }
+
+  function collect() {
+    var lines = [];
+    Array.prototype.forEach.call(document.getElementById('lines').children, function (line) {
+      if (isInventory()) {
+        lines.push({
+          item: line.querySelector('.item').value,
+          quantity: line.querySelector('.qty').value,
+          unit: line.querySelector('.unit').value,
+          rate: line.querySelector('.rate').value
+        });
+      } else {
+        var amt = line.querySelector('.qty').value;
+        lines.push({
+          expenseName: line.querySelector('.expName').value,
+          quantity: amt,
+          unit: 'p',
+          rate: 1
+        });
+      }
+    });
+
+    return {
+      date: document.getElementById('date').value,
+      expenseType: document.getElementById('expenseType').value,
+      ref: document.getElementById('ref').value.trim(),
+      status: document.getElementById('status').value,
+      paymentMethod: document.getElementById('paymentMethod').value,
+      lines: lines
+    };
+  }
+
+  function save() {
+    hideMsg();
+    var btn = document.getElementById('save');
+    btn.disabled = true;
+
+    var payload = collect();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res.ok) {
+          showMsg(res.errors.join('\n'), true);
+          return;
+        }
+        showMsg(res.message, false);
+        // Keep the date and ref so consecutive lines of one bill are quick to add.
+        document.getElementById('lines').innerHTML = '';
+        lineSeq = 0;
+        addLine();
+        recalc();
+        refreshSummary();
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showError(err);
+      })
+      .addBazarInvoice(payload);
+  }
+
+  function showMsg(text, isError) {
+    var el = document.getElementById('msg');
+    el.className = 'msg ' + (isError ? 'error' : 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  function hideMsg() {
+    document.getElementById('msg').style.display = 'none';
+  }
+
+  function showError(err) {
+    showMsg('Error: ' + (err && err.message ? err.message : err), true);
+  }
+</script>
+</body>
+</html>

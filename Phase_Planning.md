@@ -474,9 +474,9 @@ I will keep this table updated so we both know where we stand.
 
 | phase | built | self-tested | handed to you | your verdict | committed |
 |---|---|---|---|---|---|
-| 2 — data model | yes | 143 tests pass | reviewed and run | **approved** | not yet |
-| 3 — migration | yes | 42/42 checks, 0 attention | **awaiting your review** | — | not yet |
-| 4 — bazar | — | — | — | — | — |
+| 2 — data model | yes | 177 tests pass | reviewed and run | **approved** | not yet |
+| 3 — migration | yes | 42/42 checks, 0 attention | reviewed and run | **approved** | not yet |
+| 4 — bazar | yes | 177 tests, 40 Bazar assertions | **awaiting your review** | — | not yet |
 | 5 — measurements / batches | — | — | — | — | — |
 | 6 — stock | — | — | — | — | — |
 | 7 — POS | — | — | — | — | — |

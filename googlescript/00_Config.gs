@@ -75,6 +75,17 @@ var UNIT_RULES = {
 var EXPENSE_TYPES = ['Inventory purchase', 'Salary', 'Courier', 'Maintenance', 'Other'];
 var EXPENSE_TYPE_INVENTORY = 'Inventory purchase';
 
+/**
+ * Bazar payment status.
+ *
+ * NOTE ON THE WORD "Due": the owner asked for "Paid" and "Due" here, meaning a
+ * supplier bill not yet paid. That is a DIFFERENT sense from §13.B13, where `Due`
+ * means money customers owe Awwffle. They never share a column — Bazar.Status is
+ * unrelated to the DiscountDue sheet — so this is a labelling choice only, not a
+ * data collision. The label is kept as the owner asked.
+ */
+var BAZAR_STATUSES = ['Paid', 'Due'];
+
 /** Item populations (README §3.3, §17.3, §13.G1). */
 var POPULATION = {
   RECIPE: 'Recipe-driven',      // consumption from Measurements x Batches
