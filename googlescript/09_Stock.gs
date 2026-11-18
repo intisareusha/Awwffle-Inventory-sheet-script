@@ -290,9 +290,17 @@ function computeStock_(asOf, opts) {
       totalUsed: totalUsed,
 
       avgCost: cost.avg,
+      // The same average, expressed in the unit the owner buys in: per kg / per
+      // litre / per piece. This is the figure she asked to see on the Stock tab,
+      // because "Flour averages 71.47/kg" is meaningful and "0.07147 per gram" is not.
+      avgRate: round2_(entryRateFromPerBase_(item, cost.avg)),
       usedCost: round2_(usedCost),
       remainingQty: remainingQty,
       remainingValue: round2_(remainingValue),
+
+      // Used cost + remaining value. Equals opening value + purchase spend, so this
+      // is what the stock actually cost — the figure the owner asked for.
+      totalCost: round2_(cost.availableValue),
 
       availableValue: round2_(cost.availableValue),
       openingValue: round2_(cost.openingValue),
@@ -433,9 +441,17 @@ function rebuildOpeningStock_() {
   var cutOff = toDate_(settings.opening_cutoff_date || '2026-10-10');
   if (!cutOff) cutOff = toDate_('2026-10-10');
 
-  // --- Split purchases at the cut-off ---
+  // --- Split purchases at the cut-off, tracking the real purchase rate ---
   var openingQty = {};
   var purchasedQty = {};
+
+  // Opening stock must be valued at what was ACTUALLY paid on the cut-off date,
+  // not at the item's latest rate. Flour was 80/kg on 10 Oct but 67/kg later;
+  // using the latest rate would understate the opening layer by 13 Tk per kg.
+  //
+  // When an item was bought several times on the cut-off day, quantity-weighted
+  // average is the only defensible figure.
+  var openingValueRaw = {};
   var duplicateWarnings = [];
 
   readRecords_(SHEETS.BAZAR).forEach(function (r) {
@@ -448,6 +464,7 @@ function rebuildOpeningStock_() {
     var d = toDate_(r['Date']);
     if (d && d <= cutOff) {
       openingQty[item] = (openingQty[item] || 0) + base;
+      openingValueRaw[item] = (openingValueRaw[item] || 0) + (toNumber_(r['Amount']) || 0);
     } else {
       purchasedQty[item] = (purchasedQty[item] || 0) + base;
     }
@@ -494,8 +511,6 @@ function rebuildOpeningStock_() {
   itemRows.forEach(function (ir) {
     var name = String(ir['Item Name']);
     var item = findItem_(name);
-    var rate = toNumber_(ir['Latest Purchase Rate']);
-    if (rate === null) rate = toNumber_(ir['Seed Rate']);
 
     var qty = openingQty[name] || 0;
     var note = 'Purchases on or before ' + dateKey_(cutOff) + ' (setup stock)';
@@ -505,13 +520,30 @@ function rebuildOpeningStock_() {
       note = 'Pre-existing stock: never purchased in the recorded window';
     }
 
-    var value = qty * ratePerBaseUnit_(item, rate);
+    // Rate shown is the actual rate paid on the cut-off date, in the item's
+    // ENTRY unit (per kg / per litre / per piece), which is how the owner reads it.
+    // Falls back to the seeded/latest rate only for pre-existing stock, which by
+    // definition has no purchase to derive a rate from.
+    var rate;
+    var value;
+
+    if (qty > 0 && openingValueRaw[name] !== undefined) {
+      var perBase = openingValueRaw[name] / qty;            // money per gm/ml/piece
+      value = openingValueRaw[name];
+
+      // Convert back up to the entry unit so "Flour at 80/kg" reads correctly.
+      rate = entryRateFromPerBase_(item, perBase);
+    } else {
+      rate = toNumber_(ir['Latest Purchase Rate']);
+      if (rate === null) rate = toNumber_(ir['Seed Rate']);
+      value = qty * ratePerBaseUnit_(item, rate);
+    }
 
     rows.push([
       name,
       cutOff,
       round2_(qty),
-      rate,
+      round2_(rate),
       round2_(value),
       'Rebuilt from Bazar',
       note
@@ -621,6 +653,7 @@ function refreshStockSheet_(asOf) {
   }
 
   var rows = computed.rows.map(function (r) {
+    // Order must match SCHEMA[SHEETS.STOCK] exactly.
     return [
       r.item,
       r.group,
@@ -628,6 +661,7 @@ function refreshStockSheet_(asOf) {
       round2_(r.openingQty),
       round2_(r.purchasedQty),
       round2_(r.totalAvailable),
+      r.avgRate,
       round2_(r.perPrep['Batter']),
       round2_(r.perPrep['Nutella Mix']),
       round2_(r.perPrep['Cream']),
@@ -638,6 +672,7 @@ function refreshStockSheet_(asOf) {
       r.usedCost,
       round2_(r.remainingQty),
       r.remainingValue,
+      r.totalCost,
       r.estDays,
       r.estBatches,
       r.flags.join(', '),

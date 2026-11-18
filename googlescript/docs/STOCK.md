@@ -59,18 +59,47 @@ rows it has already imported.
 
 | Column | Meaning |
 |---|---|
-| Opening Qty | Pre-Bazar stock, from the migration cut-off (9 Oct 2026) |
-| Purchased Qty | Total bought in Bazar, in the base unit |
-| Total Available | Opening + purchased |
+| Opening Qty | Pre-Bazar stock, from the migration cut-off (10 Oct 2026) |
+| Purchased Qty | Total bought after the cut-off, in the base unit |
+| Total Qty | Opening + purchased |
+| **Avg. Rate** | Weighted average cost **per kg / per litre / per piece** |
 | Batter…Cheese Used | Consumption per preparation, from Measurements × Batches |
 | Manual Used | Toppings/packaging usage entered by hand |
 | Total Used | Everything above combined |
 | Used Cost | What the consumed stock was worth |
-| Remaining Qty | Total available − total used |
+| Remaining Qty | Total Qty − Total Used |
 | Remaining Value | What is left on the shelf, in money |
+| **Total Cost** | Used Cost + Remaining Value — what the stock actually cost |
 | Est. Open Days | Days of stock left, counted in **trading days** |
 | Est. Batches | Batches still possible, limited by the scarcest preparation |
 | Low Stock | Flags: `NEGATIVE`, `LOW DAYS`, `LOW BATCHES` |
+
+### Avg. Rate — what it is and why it matters
+
+`Avg. Rate` is the **weighted average cost of everything bought** for that item,
+shown in the unit you buy it in.
+
+It is not the latest price and not the first price. Example, Flour:
+
+| Purchase | Qty | Rate |
+|---|---|---|
+| 10 Oct (opening) | 10.5 kg | 80 |
+| 10 Nov | 25 kg | 67 |
+| 12 Nov | 1 kg | 85 |
+| 13 Nov | 1 kg | 80 |
+
+That is 37.5 kg for 2,680 Tk, so **Avg. Rate = 71.47 per kg**.
+
+Every valuation uses that one number: used cost and remaining value are both
+`quantity × 71.47`, which is why they add up to exactly 2,680.
+
+Piece items show their piece rate (Nutella ≈ 830 per jar); gram-entered items show
+their per-kg rate (B. Powder 450/kg), so the figure always reads the way you buy.
+
+### Total Cost
+
+`Used Cost + Remaining Value`. It equals the opening value plus everything spent on
+that item, so it answers "what did this stock cost me in total".
 
 ---
 

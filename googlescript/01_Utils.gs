@@ -87,8 +87,18 @@ function colIndex_(headers, name) {
   return -1;
 }
 
-/** Writes headers into row 1, without clearing anything below. */
+/**
+ * Writes headers into row 1, clearing anything to the right.
+ *
+ * Clearing the tail matters: if a column is renamed or removed, the old header
+ * stays in its cell and a new one is appended, leaving an orphan column that
+ * looks like a bug. Renaming `Total Available` to `Total Qty` did exactly that.
+ */
 function writeHeaders_(sheet, headers) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol > headers.length) {
+    sheet.getRange(1, headers.length + 1, 1, lastCol - headers.length).clearContent();
+  }
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   sheet.setFrozenRows(1);
@@ -247,6 +257,26 @@ function ratePerBaseUnit_(item, rate) {
 /** Rate per base unit, resolved from an item name. Used by migration. */
 function ratePerBaseUnitForMigration_(itemName, rate) {
   return ratePerBaseUnit_(findItem_(itemName), rate);
+}
+
+/**
+ * Inverse of ratePerBaseUnit_: turns a price per base unit back into a price per
+ * ENTRY unit (per kg / per litre / per piece).
+ *
+ * Needed because the owner reads rates the way she buys things — "Flour is 80 per
+ * kg", not "0.08 per gram" — while all internal maths runs on base units.
+ */
+function entryRateFromPerBase_(item, perBase) {
+  var p = toNumber_(perBase);
+  if (p === null || !item) return 0;
+
+  var unit = item.unit;
+  if (unit === 'kg' || unit === 'l') return p * 1000;
+  if (unit === 'p') {
+    if (item.perPieceWeight && item.perPieceWeight > 1) return p * item.perPieceWeight;
+    return p;
+  }
+  return p * 1000;                                      // gm/ml display
 }
 
 /** Quantity expressed in the item's base unit. */

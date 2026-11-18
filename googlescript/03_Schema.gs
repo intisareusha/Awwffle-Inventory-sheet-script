@@ -206,6 +206,7 @@ SCHEMA[SHEETS.STOCK] = [
   'Opening Qty',        // in base unit
   'Purchased Qty',
   'Total Qty',          // opening + purchased
+  'Avg. Rate',          // weighted average, per entry unit (kg / l / piece)
   'Batter Used',
   'Nutella Mix Used',
   'Cream Used',
@@ -216,6 +217,7 @@ SCHEMA[SHEETS.STOCK] = [
   'Used Cost',
   'Remaining Qty',
   'Remaining Value',
+  'Total Cost',         // used cost + remaining value = what the stock cost
   'Est. Open Days',     // labelled "Open days", not calendar days (D6)
   'Est. Batches',
   'Low Stock',

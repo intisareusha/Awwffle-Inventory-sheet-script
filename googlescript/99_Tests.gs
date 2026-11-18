@@ -36,7 +36,9 @@ function runAllTests() {
     testOpenDays,
     testWeightedAverage,
     testOpeningCutOffSplit,
-    testCodeOwnedSettingsSync
+    testCodeOwnedSettingsSync,
+    testEntryRateRoundTrip,
+    testStockSchemaColumns
   ];
 
   var passed = 0;
@@ -1225,6 +1227,92 @@ function testCodeOwnedSettingsSync() {
   eq_(s, 'stale code-owned value is synced', shouldSync(cutoff, '2026-10-09'), true);
   eq_(s, 'current code-owned value is not rewritten', shouldSync(cutoff, '2026-10-10'), false);
   eq_(s, 'editable value is never synced', shouldSync(lowDays, '9'), false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Entry rate <-> base rate round trip
+// ---------------------------------------------------------------------------
+
+/**
+ * The owner reads rates the way she buys: per kg, per litre, per piece. All maths
+ * runs per base unit (gm/ml/p). These two conversions must be exact inverses, or
+ * the "Avg. Rate" column shows a figure that does not match the real cost.
+ */
+function testEntryRateRoundTrip() {
+  var s = newSuite_();
+
+  var cases = [
+    ['Flour', 80, 'per kg'],
+    ['Milk', 80, 'per litre'],
+    ['B. Powder', 450, 'per kg even though entered in gm'],
+    ['Nutella', 830, 'per 350 gm jar'],
+    ['Whipped Cream', 215, 'per 1 kg tub'],
+    ['Waffle Box', 5, 'per piece'],
+    ['Egg', 10, 'per piece']
+  ];
+
+  cases.forEach(function (c) {
+    var item = findItem_(c[0]);
+    var perBase = ratePerBaseUnit_(item, c[1]);
+    var back = entryRateFromPerBase_(item, perBase);
+    closeTo_(s, 'round trip ' + c[0] + ' (' + c[2] + ')', back, c[1], 1e-9);
+  });
+
+  // The specific bug this guards: showing 67 for Flour when 80 was paid.
+  var flour = findItem_('Flour');
+  closeTo_(s, 'Flour 80/kg is 0.08 per gm', ratePerBaseUnit_(flour, 80), 0.08, 1e-9);
+  closeTo_(s, 'Flour 0.08 per gm reads back as 80/kg', entryRateFromPerBase_(flour, 0.08), 80, 1e-9);
+  closeTo_(s, 'Flour 67/kg reads back as 67', entryRateFromPerBase_(flour, 0.067), 67, 1e-9);
+
+  // Weighted average lands in the entry unit, which is what the Stock tab shows.
+  // Flour: 2,680 spent on 37,500 gm -> 0.0714667 per gm -> 71.4667 per kg
+  closeTo_(s, 'weighted average renders per kg', entryRateFromPerBase_(flour, 2680 / 37500), 2680 / 37.5, 1e-9);
+
+  eq_(s, 'null item returns 0', entryRateFromPerBase_(null, 0.08), 0);
+  eq_(s, 'null value returns 0', entryRateFromPerBase_(flour, null), 0);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Stock sheet columns
+// ---------------------------------------------------------------------------
+
+/**
+ * The Stock view is written positionally, so the header list and the row builder
+ * must agree exactly. A mismatched pair silently shifts every column — which is
+ * how a stale `Total Available` header ended up as an orphan empty column after
+ * the rename to `Total Qty`.
+ */
+function testStockSchemaColumns() {
+  var s = newSuite_();
+
+  var headers = SCHEMA[SHEETS.STOCK];
+
+  eq_(s, 'Total Qty present', headers.indexOf('Total Qty') !== -1, true);
+  eq_(s, 'Avg. Rate present', headers.indexOf('Avg. Rate') !== -1, true);
+  eq_(s, 'Total Cost present', headers.indexOf('Total Cost') !== -1, true);
+  eq_(s, 'old Total Available removed', headers.indexOf('Total Available'), -1);
+
+  // No duplicate header names: a duplicate would make colIndex_ ambiguous.
+  var seen = {};
+  var dupes = [];
+  headers.forEach(function (h) {
+    if (seen[h]) dupes.push(h);
+    seen[h] = true;
+  });
+  eq_(s, 'no duplicate headers', dupes.join(','), '');
+  eq_(s, 'no empty header', headers.indexOf(''), -1);
+
+  // Avg. Rate sits immediately after Total Qty, where the owner expects it.
+  eq_(s, 'Avg. Rate follows Total Qty',
+    headers.indexOf('Avg. Rate'), headers.indexOf('Total Qty') + 1);
+
+  // Total Cost follows Remaining Value, completing the money block.
+  eq_(s, 'Total Cost follows Remaining Value',
+    headers.indexOf('Total Cost'), headers.indexOf('Remaining Value') + 1);
 
   return s;
 }
