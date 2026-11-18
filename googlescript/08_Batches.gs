@@ -150,7 +150,8 @@ function saveBatch_(payload) {
     updated: existingIndex >= 0,
     date: key,
     total: result.total,
-    closedDay: isClosedDay_(date),
+    closedDay: result.warnings.length > 0,
+    warnings: result.warnings,
     message: (existingIndex >= 0 ? 'Updated' : 'Saved') + ' batch for ' + key +
              ' (total ' + round2_(result.total) + ' batches)'
   };

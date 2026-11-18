@@ -9,15 +9,46 @@ Open from **Awwffle → Daily entry → Record daily batches**.
 
 ## How to use it
 
-1. **Production date** — defaults to today.
-2. Enter the number of batches for each preparation. **Fractions are fine** — `0.5`
-   is a real half batch.
-3. Leave a preparation **blank** if you made none of it.
-4. **Save batch**.
+The form is deliberately plain: one date, five number boxes, one save button.
 
-If that date already has a batch, the form loads it and shows
-**"editing saved batch"**. Saving updates it — it never creates a second row for
-the same day.
+1. **Production date** — defaults to today.
+2. Fill in the five boxes:
+
+   | Field | Example |
+   |---|---|
+   | Batter | `1` |
+   | Nutella Mix | `2` |
+   | Cream | `1` |
+   | White Mix | `0` |
+   | Cheese | `0` |
+
+3. **Save batch**.
+
+That is the whole workflow. `0` and blank both mean "none of this preparation",
+and fractions are fine — `0.5` is a real half batch. The running **Total** under
+the boxes just adds them up so you can sanity-check before saving.
+
+---
+
+## Editing a saved day
+
+Pick the same date again — or click it in **Recent batches** at the bottom.
+
+A yellow banner appears:
+
+> **Editing the saved batch for 2026-11-18. Saving updates it.**   **[Delete]**
+
+The five boxes fill with what is already saved, so you can correct a number and
+save. **Saving updates the existing record — it never creates a second one for the
+same day.**
+
+## Deleting
+
+The **Delete** button only appears when you are viewing a saved batch. It asks for
+confirmation, then removes that day's record and its ingredient usage.
+
+If you only want to fix a number, **edit and save** instead — that keeps the day
+and just changes the quantities.
 
 ---
 
