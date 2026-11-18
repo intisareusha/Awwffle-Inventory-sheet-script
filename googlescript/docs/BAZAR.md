@@ -22,6 +22,44 @@ Open it from **Awwffle → Daily entry → Record a purchase (Bazar)**.
 
 ---
 
+## Editing and deleting a saved line
+
+Below the form is **Saved lines**, showing your most recent purchases across
+**all dates** — the date field only affects saving, not browsing.
+
+- **Click any line** to load it into the form. A yellow banner appears:
+  > **Editing a saved line from 2026-11-12. Saving updates it.**  **[Delete] [Cancel]**
+
+- The date field moves to that line's date, and the button changes to
+  **Update line**. Correct anything and save. The row is **updated in place** — it
+  keeps its Record ID, so nothing is duplicated and history is not rewritten (§11).
+- **Delete** removes that one line, after a confirmation naming what will go.
+- **Cancel** leaves edit mode without changing anything.
+
+Each line shows its own date, because the list spans many days. The footer gives
+the line count and their combined total.
+
+> **If the list looks empty** but you know you have purchases, it will now say why
+> in red rather than showing nothing. The most likely cause is that
+> `06_Bazar.gs` was not re-pasted, so the server is missing the new functions.
+
+### What editing does and does not change
+
+| Editing… | Effect |
+|---|---|
+| quantity or rate | `Amount` is recomputed; base quantity is recomputed for stock |
+| item | base quantity converts using the new item's rules |
+| expense type | inventory ↔ non-inventory changes whether stock is affected |
+| date | the line moves to that day |
+| ref | the line regroups under the new invoice |
+| Record ID | **never changes** — that is the row's identity |
+
+Editing obeys exactly the same validation as adding: no unknown items, no future
+dates, no bad units, no accidental duplicates. A line is never treated as a
+duplicate of *itself*, so re-saving without changes is safe.
+
+---
+
 ## What is calculated for you
 
 **Amount is never typed.** It is always `quantity ÷ rate divisor × rate`, matching

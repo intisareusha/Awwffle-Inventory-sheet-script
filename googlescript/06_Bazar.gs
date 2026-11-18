@@ -47,6 +47,26 @@ function bazarInvoices() {
   return bazarInvoices_();
 }
 
+/** Recent purchase lines for the sidebar's edit list. */
+function getRecentBazarLines(limit, dateFilter) {
+  return getRecentBazarLines_(limit, dateFilter);
+}
+
+/** One saved line, for editing. */
+function getBazarLine(recordId) {
+  return getBazarLine_(recordId);
+}
+
+/** Updates one existing line in place, keeping its Record ID. */
+function updateBazarLine(payload) {
+  return updateBazarLine_(payload);
+}
+
+/** Deletes one line by Record ID. */
+function deleteBazarLine(recordId) {
+  return deleteBazarLine_(recordId);
+}
+
 // ---------------------------------------------------------------------------
 // Form options
 // ---------------------------------------------------------------------------
@@ -354,6 +374,190 @@ function updateLatestRate_(itemName, rate) {
       return;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Edit and delete — same idea as Batches, keyed by the stable Record ID
+// ---------------------------------------------------------------------------
+
+/**
+ * Recent purchase lines, newest first, for the sidebar's edit list.
+ *
+ * `dateFilter` narrows to one day when supplied, matching how the batch form
+ * shows the batches for the date currently selected.
+ */
+function getRecentBazarLines_(limit, dateFilter) {
+  var filter = dateFilter ? dateKey_(toDate_(dateFilter)) : null;
+
+  var rows = readRecords_(SHEETS.BAZAR).map(function (r, i) {
+    var d = toDate_(r['Date']);
+    if (filter && dateKey_(d) !== filter) return null;
+
+    var isInventory = String(r['Affects Stock']) === 'true' ||
+                      String(r['Affects Stock']) === 'TRUE';
+
+    return {
+      recordId: String(r['Record ID'] || ''),
+      date: dateKey_(d),
+      expenseType: String(r['Expense Type'] || ''),
+      item: String(r['Item'] || ''),
+      expenseName: String(r['Expense Name'] || ''),
+      quantity: toNumber_(r['Quantity']),
+      unit: String(r['Unit'] || ''),
+      rate: toNumber_(r['Rate']),
+      amount: toNumber_(r['Amount']),
+      ref: String(r['Ref'] || ''),
+      status: String(r['Status'] || ''),
+      paymentMethod: String(r['Payment Method'] || ''),
+      isInventory: isInventory,
+      label: isInventory
+        ? String(r['Item'] || '')
+        : String(r['Expense Name'] || r['Expense Type'] || '')
+    };
+  }).filter(function (x) { return x && x.recordId; });
+
+  // readRecords returns sheet order (oldest first); the UI wants newest first.
+  rows.sort(function (a, b) {
+    if (a.date === b.date) return 0;
+    return a.date < b.date ? 1 : -1;
+  });
+
+  return limit ? rows.slice(0, limit) : rows;
+}
+
+/** One saved line by Record ID, or null. */
+function getBazarLine_(recordId) {
+  var id = String(recordId || '').trim();
+  if (!id) return null;
+
+  var found = readRecords_(SHEETS.BAZAR).filter(function (r) {
+    return String(r['Record ID'] || '') === id;
+  })[0];
+
+  if (!found) return null;
+
+  var isInventory = String(found['Affects Stock']) === 'true' ||
+                    String(found['Affects Stock']) === 'TRUE';
+
+  return {
+    recordId: id,
+    date: dateKey_(found['Date']),
+    expenseType: String(found['Expense Type'] || ''),
+    item: String(found['Item'] || ''),
+    expenseName: String(found['Expense Name'] || ''),
+    quantity: toNumber_(found['Quantity']),
+    unit: String(found['Unit'] || ''),
+    rate: toNumber_(found['Rate']),
+    amount: toNumber_(found['Amount']),
+    ref: String(found['Ref'] || ''),
+    status: String(found['Status'] || ''),
+    paymentMethod: String(found['Payment Method'] || ''),
+    isInventory: isInventory
+  };
+}
+
+/** Finds the sheet row number holding a Record ID, or -1. */
+function findBazarRow_(sheet, recordId) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+
+  var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || '').trim() === recordId) return i + 2;
+  }
+  return -1;
+}
+
+/**
+ * Updates one existing line in place.
+ *
+ * Reuses validateBazarInvoice_ so an edited line obeys exactly the same rules as
+ * a new one — no second validation path that can drift.
+ *
+ * The Record ID and the original "Entered At" are preserved so the row keeps its
+ * identity (§11: history is edited, not replaced).
+ */
+function updateBazarLine_(payload) {
+  var recordId = String(payload && payload.recordId || '').trim();
+  if (!recordId) return { ok: false, errors: ['No record was selected to update.'] };
+
+  var sheet = getSheet_(SHEETS.BAZAR);
+  var realRow = findBazarRow_(sheet, recordId);
+  if (realRow < 2) {
+    return { ok: false, errors: ['That purchase no longer exists. Refresh and try again.'] };
+  }
+
+  var existing = readRecords_(SHEETS.BAZAR).filter(function (r) {
+    return String(r['Record ID'] || '') === recordId;
+  })[0];
+
+  // Validate as a single-line invoice, excluding this record from the duplicate
+  // check — otherwise saving a line unchanged would flag itself as a duplicate.
+  var single = {
+    date: payload.date,
+    expenseType: payload.expenseType,
+    ref: payload.ref,
+    status: payload.status,
+    paymentMethod: payload.paymentMethod,
+    lines: payload.lines && payload.lines.length ? [payload.lines[0]] : []
+  };
+
+  var others = readRecords_(SHEETS.BAZAR).filter(function (r) {
+    return String(r['Record ID'] || '') !== recordId;
+  });
+
+  var result = validateBazarInvoice_(single, others);
+  if (!result.ok) return { ok: false, errors: result.errors };
+
+  var row = result.rows[0];
+  row[0] = recordId;                                  // keep the identity
+  row[14] = existing && existing['Entered At'] ? existing['Entered At'] : new Date();
+  row[15] = 'Edited via form';
+
+  sheet.getRange(realRow, 1, 1, row.length).setValues([row]);
+
+  // The item's display-only latest rate may have moved with this edit.
+  if (row[3]) updateLatestRate_(row[3], row[7]);
+
+  logEvent_('BAZAR', 'Purchase edited', recordId + ' ' + dateKey_(result.date));
+  return {
+    ok: true,
+    updated: true,
+    recordId: recordId,
+    total: result.total,
+    message: 'Updated: ' + (row[3] || row[4]) + ' ' + row[5] + ' ' + row[6] +
+             ' at ' + row[7] + ' (' + row[8] + ' BDT)'
+  };
+}
+
+/** Deletes one line by Record ID. */
+function deleteBazarLine_(recordId) {
+  var id = String(recordId || '').trim();
+  if (!id) return { ok: false, errors: ['No record was selected to delete.'] };
+
+  var sheet = getSheet_(SHEETS.BAZAR);
+  var realRow = findBazarRow_(sheet, id);
+  if (realRow < 2) {
+    return { ok: false, errors: ['That purchase no longer exists. It may already be deleted.'] };
+  }
+
+  var existing = readRecords_(SHEETS.BAZAR).filter(function (r) {
+    return String(r['Record ID'] || '') === id;
+  })[0];
+
+  var description = existing
+    ? (existing['Item'] || existing['Expense Name'] || '') + ' ' +
+      (existing['Quantity'] || '') + ' ' + (existing['Unit'] || '')
+    : id;
+
+  sheet.deleteRow(realRow);
+  logEvent_('BAZAR', 'Purchase deleted', id + ' ' + description);
+
+  return {
+    ok: true,
+    deleted: id,
+    message: 'Deleted: ' + description
+  };
 }
 
 // ---------------------------------------------------------------------------

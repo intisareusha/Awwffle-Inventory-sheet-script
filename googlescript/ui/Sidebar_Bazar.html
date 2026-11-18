@@ -49,12 +49,43 @@
     .hint { font-size: 11px; color: #5f6368; margin-top: 2px; }
     .hidden { display: none !important; }
     #summary { font-size: 11px; color: #5f6368; line-height: 1.6; }
+
+    /* Shown when editing an already-saved line. */
+    #editing {
+      display: none; align-items: center; gap: 6px;
+      background: #fef7e0; border: 1px solid #feefc3; color: #b06000;
+      padding: 7px 9px; border-radius: 4px; margin-bottom: 10px; font-size: 12px;
+    }
+    #editing .txt { flex: 1; }
+    #editing button { padding: 4px 9px; font-size: 12px; }
+
+    #saved { max-height: 240px; overflow-y: auto; }
+    .saved-item {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 6px; border-bottom: 1px solid #f1f3f4;
+      cursor: pointer; font-size: 12px;
+    }
+    .saved-item:hover { background: #f8f9fa; }
+    .saved-item.active { background: #e8f0fe; }
+    .saved-item .l { font-weight: 500; }
+    .saved-item .r { color: #5f6368; text-align: right; white-space: nowrap; }
+    .saved-item .tag {
+      font-size: 10px; padding: 1px 5px; border-radius: 8px;
+      background: #e8eaed; color: #5f6368; margin-left: 5px;
+    }
+    .saved-item .tag.due { background: #fce8e6; color: #a50e0e; }
   </style>
 </head>
 <body>
   <h2>Record a purchase</h2>
 
   <div id="msg" class="msg"></div>
+
+  <div id="editing">
+    <span class="txt" id="editingText"></span>
+    <button type="button" id="delete" class="danger">Delete</button>
+    <button type="button" id="cancelEdit">Cancel</button>
+  </div>
 
   <div class="row grid3">
     <div>
@@ -105,6 +136,11 @@
     <div id="summary"></div>
   </div>
 
+  <fieldset style="margin-top:12px">
+    <legend>Saved lines <span class="muted">(click one to edit)</span></legend>
+    <div id="saved"></div>
+  </fieldset>
+
 <script>
   var OPTIONS = null;
   var lineSeq = 0;
@@ -154,12 +190,227 @@
     document.getElementById('addLine').addEventListener('click', function () { addLine(); });
     document.getElementById('save').addEventListener('click', save);
     document.getElementById('ref').addEventListener('input', refreshSummary);
+    document.getElementById('date').addEventListener('change', refreshSaved);
+    document.getElementById('delete').addEventListener('click', removeEditing);
+    document.getElementById('cancelEdit').addEventListener('click', function () {
+      setEditing(null);
+      clearLines();
+    });
 
     // Build the first line. onTypeChange() also runs and is responsible for
     // creating a line if none exists, so calling addLine() here as well would
     // create two.
     onTypeChange();
     refreshSummary();
+    refreshSaved();
+  }
+
+  // -------------------------------------------------------------------------
+  // Edit mode
+  // -------------------------------------------------------------------------
+
+  // The record being edited, or null when adding a new line.
+  var EDITING = null;
+
+  function setEditing(line) {
+    EDITING = line;
+    var banner = document.getElementById('editing');
+
+    if (!line) {
+      banner.style.display = 'none';
+      document.getElementById('save').textContent = 'Save invoice';
+      return;
+    }
+
+    document.getElementById('editingText').textContent =
+      'Editing a saved line from ' + line.date + '. Saving updates it.';
+    document.getElementById('save').textContent = 'Update line';
+    banner.style.display = 'flex';
+
+    // Load the saved line into the form so it can be corrected.
+    var typeSel = document.getElementById('expenseType');
+    typeSel.value = line.expenseType;
+
+    document.getElementById('date').value = line.date;
+    document.getElementById('ref').value = line.ref;
+    document.getElementById('status').value = line.status || 'Paid';
+    document.getElementById('paymentMethod').value = line.paymentMethod || '';
+
+    // Rebuild the line fields for the right type, then fill them.
+    var container = document.getElementById('lines');
+    container.innerHTML = '';
+    lineSeq = 0;
+    addLine();
+
+    var first = container.children[0];
+    if (line.isInventory) {
+      var itemSel = first.querySelector('.item');
+      // The saved item may have been deactivated since; fall back gracefully.
+      var found = false;
+      for (var i = 0; i < itemSel.options.length; i++) {
+        if (itemSel.options[i].value === line.item) { itemSel.selectedIndex = i; found = true; break; }
+      }
+      if (!found && line.item) {
+        var add = document.createElement('option');
+        add.value = line.item; add.textContent = line.item + ' (inactive)';
+        itemSel.appendChild(add);
+        itemSel.value = line.item;
+      }
+      first.querySelector('.qty').value = line.quantity == null ? '' : line.quantity;
+      first.querySelector('.unit').value = line.unit;
+      first.querySelector('.rate').value = line.rate == null ? '' : line.rate;
+    } else {
+      first.querySelector('.expName').value = line.expenseName;
+      first.querySelector('.qty').value = line.quantity == null ? '' : line.quantity;
+    }
+
+    recalc();
+    highlightSaved(line.recordId);
+  }
+
+  function clearLines() {
+    document.getElementById('lines').innerHTML = '';
+    lineSeq = 0;
+    addLine();
+    recalc();
+  }
+
+  function removeEditing() {
+    if (!EDITING) return;
+    var line = EDITING;
+
+    if (!confirm('Delete this purchase line?\n\n' +
+        (line.item || line.expenseName) + ' — ' + line.amount + ' BDT on ' + line.date +
+        '\n\nThis cannot be undone.')) return;
+
+    document.getElementById('delete').disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        document.getElementById('delete').disabled = false;
+        if (!res.ok) { showMsg(res.errors.join('\n'), true); return; }
+        showMsg(res.message, false);
+        setEditing(null);
+        clearLines();
+        refreshSaved();
+      })
+      .withFailureHandler(function (err) {
+        document.getElementById('delete').disabled = false;
+        showError(err);
+      })
+      .deleteBazarLine(line.recordId);
+  }
+
+  // Saves the line currently being edited.
+  function saveEditing() {
+    var payload = collect();
+    payload.recordId = EDITING.recordId;
+
+    var btn = document.getElementById('save');
+    btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { showMsg(res.errors.join('\n'), true); return; }
+        showMsg(res.message, false);
+        setEditing(null);
+        clearLines();
+        refreshSaved();
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showError(err);
+      })
+      .updateBazarLine(payload);
+  }
+
+  // -------------------------------------------------------------------------
+  // Saved lines list
+  // -------------------------------------------------------------------------
+
+  function refreshSaved() {
+    // No date filter: the list always shows recent purchases across all dates.
+    // Selecting a date only matters when saving, not for browsing what exists.
+    google.script.run
+      .withSuccessHandler(renderSaved)
+      .withFailureHandler(function (err) {
+        // Never swallow this. A silent failure here is indistinguishable from
+        // "no purchases saved", which is exactly how a broken list looks.
+        document.getElementById('saved').innerHTML =
+          '<div class="hint" style="color:#a50e0e">Could not load saved lines: ' +
+          (err && err.message ? err.message : err) + '</div>';
+      })
+      .getRecentBazarLines(100);
+  }
+
+  function highlightSaved(recordId) {
+    var items = document.getElementById('saved').children;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].getAttribute && items[i].getAttribute('data-id') === recordId) {
+        items[i].className = 'saved-item active';
+      } else {
+        items[i].className = 'saved-item';
+      }
+    }
+  }
+
+  function renderSaved(rows) {
+    var el = document.getElementById('saved');
+    el.innerHTML = '';
+
+    if (!rows || !rows.length) {
+      el.innerHTML = '<div class="hint">No purchases recorded yet.</div>';
+      return;
+    }
+
+    var dayTotal = 0;
+
+    rows.forEach(function (r) {
+      dayTotal += r.amount || 0;
+
+      var row = document.createElement('div');
+      row.className = 'saved-item';
+      if (r.recordId && EDITING && r.recordId === EDITING.recordId) row.className += ' active';
+      if (row.setAttribute) row.setAttribute('data-id', r.recordId || '');
+
+      var left = document.createElement('span');
+      left.className = 'l';
+      // Without a date filter the list spans many days, so show the date on
+      // each line or two identical purchases on different days look confusing.
+      left.textContent = r.date + '  ' + r.label + '  ' +
+        (r.quantity == null ? '' : r.quantity) + ' ' + r.unit;
+
+      var right = document.createElement('span');
+      right.className = 'r';
+      right.textContent = (r.amount == null ? '0' : r.amount) + ' BDT';
+      if (r.ref) right.textContent += '  ' + r.ref;
+
+      if (r.status && r.status !== 'Paid') {
+        var tag = document.createElement('span');
+        tag.className = 'tag due';
+        tag.textContent = r.status;
+        left.appendChild(tag);
+      }
+
+      row.appendChild(left);
+      row.appendChild(right);
+      row.addEventListener('click', function () { setEditing(r); });
+      el.appendChild(row);
+    });
+
+    var foot = document.createElement('div');
+    foot.className = 'saved-item';
+    foot.style.cursor = 'default';
+    foot.style.fontWeight = '600';
+    var footL = document.createElement('span');
+    footL.className = 'l';
+    footL.textContent = rows.length + ' recent line(s)';
+    var footR = document.createElement('span');
+    footR.className = 'r';
+    footR.textContent = (Math.round(dayTotal * 100) / 100) + ' BDT';
+    foot.appendChild(footL);
+    foot.appendChild(footR);
+    el.appendChild(foot);
   }
 
   function isInventory() {
@@ -171,10 +422,15 @@
     // each rebuilt line is re-seeded with sensible defaults (its item's unit and
     // latest rate). Previously this passed keepExisting=true, which suppressed
     // seeding and left every line on unit "p" with a blank rate.
+    //
+    // While editing a saved line, only one line exists and it is filled by
+    // setEditing(), so a type switch there simply starts over — which is correct:
+    // changing an item line into a salary line is a different record.
     var container = document.getElementById('lines');
     var count = container.children.length;
     container.innerHTML = '';
-    for (var i = 0; i < count; i++) addLine();
+    var wanted = EDITING ? 1 : count;
+    for (var i = 0; i < wanted; i++) addLine();
     if (!container.children.length) addLine();
   }
 
@@ -352,6 +608,11 @@
 
   function save() {
     hideMsg();
+
+    // Editing an existing line takes a different server call. Both paths share
+    // the same validation on the server, so the rules cannot drift.
+    if (EDITING) { saveEditing(); return; }
+
     var btn = document.getElementById('save');
     btn.disabled = true;
 
@@ -370,6 +631,7 @@
         addLine();
         recalc();
         refreshSummary();
+        refreshSaved();
       })
       .withFailureHandler(function (err) {
         btn.disabled = false;

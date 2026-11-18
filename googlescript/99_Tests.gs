@@ -25,6 +25,7 @@ function runAllTests() {
     testReportRowFormatting,
     testBazarValidation,
     testBazarDuplicates,
+    testBazarEditValidation,
     testSidebarContract,
     testBatchValidation,
     testMeasurementsValidation,
@@ -627,6 +628,89 @@ function testBazarDuplicates() {
     'Item': 'Kitkat', 'Quantity': 2, 'Unit': 'p', 'Rate': 70, 'Ref': '#T1'
   }];
   eq_(s, 'same item same ref duplicate', validateBazarInvoice_(aliasSpelling, kitkatExisting).ok, false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Bazar edit path — must obey the same rules as create
+// ---------------------------------------------------------------------------
+
+/**
+ * Editing reuses validateBazarInvoice_, so the critical property to prove is that
+ * a line does not collide with ITSELF. Without excluding the edited record, saving
+ * a line unchanged would be rejected as a duplicate.
+ */
+function testBazarEditValidation() {
+  var s = newSuite_();
+
+  // Public surface the sidebar calls.
+  eq_(s, 'getRecentBazarLines is public', typeof getRecentBazarLines, 'function');
+  eq_(s, 'getBazarLine is public', typeof getBazarLine, 'function');
+  eq_(s, 'updateBazarLine is public', typeof updateBazarLine, 'function');
+  eq_(s, 'deleteBazarLine is public', typeof deleteBazarLine, 'function');
+
+  // The server excludes the edited row before validating, so an unchanged save
+  // passes. Simulate that: validate against the OTHER rows only.
+  var editedPayload = {
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#E1',
+    status: 'Paid',
+    lines: [{ item: 'Flour', quantity: 10, unit: 'kg', rate: 80 }]
+  };
+
+  // The row being edited, as it currently exists.
+  var selfRow = {
+    'Date': new Date(2026, 10, 17), 'Item': 'Flour', 'Expense Name': '',
+    'Quantity': 10, 'Unit': 'kg', 'Rate': 80, 'Ref': '#E1'
+  };
+
+  // Validated against itself, it looks like a duplicate...
+  eq_(s, 'self looks like a duplicate if not excluded',
+    validateBazarInvoice_(editedPayload, [selfRow]).ok, false);
+
+  // ...but validated against the other rows only (what updateBazarLine_ does),
+  // the same save is accepted.
+  eq_(s, 'unchanged edit accepted when self excluded',
+    validateBazarInvoice_(editedPayload, []).ok, true);
+
+  // A genuine clash with a DIFFERENT row is still caught.
+  var otherRow = {
+    'Date': new Date(2026, 10, 17), 'Item': 'Sugar', 'Expense Name': '',
+    'Quantity': 5, 'Unit': 'kg', 'Rate': 106, 'Ref': '#E2'
+  };
+  var clash = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, ref: '#E2',
+    status: 'Paid',
+    lines: [{ item: 'Sugar', quantity: 5, unit: 'kg', rate: 106 }]
+  }, [otherRow]);
+  eq_(s, 'editing into another row still rejected', clash.ok, false);
+
+  // Edits are validated exactly like new lines.
+  eq_(s, 'edit rejects unknown item',
+    validateBazarInvoice_({
+      date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Unobtanium', quantity: 1, unit: 'kg', rate: 10 }]
+    }, []).ok, false);
+
+  eq_(s, 'edit rejects future date',
+    validateBazarInvoice_({
+      date: '2099-01-01', expenseType: EXPENSE_TYPE_INVENTORY,
+      lines: [{ item: 'Flour', quantity: 1, unit: 'kg', rate: 10 }]
+    }, []).ok, false);
+
+  eq_(s, 'edit rejects bad status',
+    validateBazarInvoice_({
+      date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY, status: 'Nope',
+      lines: [{ item: 'Flour', quantity: 1, unit: 'kg', rate: 10 }]
+    }, []).ok, false);
+
+  // An edited amount is recomputed, never taken from the payload.
+  var revalued = validateBazarInvoice_({
+    date: '2026-11-17', expenseType: EXPENSE_TYPE_INVENTORY,
+    lines: [{ item: 'Flour', quantity: 12, unit: 'kg', rate: 85 }]
+  }, []);
+  eq_(s, 'edited amount recomputed', revalued.total, 1020);
+  eq_(s, 'edited base quantity recomputed', revalued.rows[0][12], 12000);
 
   return s;
 }
