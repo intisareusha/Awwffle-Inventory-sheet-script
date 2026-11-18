@@ -19,6 +19,7 @@ function installMenu_() {
   // Daily entry — each opens a labelled form, not a raw row (§13.E33).
   var entry = ui.createMenu('Daily entry');
   entry.addItem('Record a purchase (Bazar)', 'menuOpenBazarForm');
+  entry.addItem('Record daily batches', 'menuOpenBatchForm');
   menu.addSubMenu(entry);
 
   menu.addSeparator();
@@ -91,5 +92,11 @@ function menuShowSystemInfo() {
 function menuOpenBazarForm() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_Bazar')
     .setTitle('Record a purchase');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenBatchForm() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_Batches')
+    .setTitle('Daily batches');
   SpreadsheetApp.getUi().showSidebar(html);
 }

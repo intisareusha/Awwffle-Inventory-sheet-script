@@ -25,7 +25,11 @@ function runAllTests() {
     testReportRowFormatting,
     testBazarValidation,
     testBazarDuplicates,
-    testSidebarContract
+    testSidebarContract,
+    testBatchValidation,
+    testMeasurementsValidation,
+    testConsumptionFormula,
+    testBatchFunctionsExist
   ];
 
   var passed = 0;
@@ -653,6 +657,153 @@ function testSidebarContract() {
   }, []);
   eq_(s, 'Due status accepted', goodStatus.ok, true);
   eq_(s, 'Due status stored', goodStatus.rows[0][10], 'Due');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Batch validation — README §3.2
+// ---------------------------------------------------------------------------
+
+function testBatchValidation() {
+  var s = newSuite_();
+
+  var good = validateBatch_({
+    date: '2026-11-17',
+    values: { 'Batter': 1.5, 'Nutella Mix': 1, 'Cream': 0.5, 'White Mix': '', 'Cheese': '' }
+  });
+  eq_(s, 'valid batch accepted', good.ok, true);
+  eq_(s, 'fractional batches allowed', good.values['Batter'], 1.5);
+  eq_(s, 'fractional total', good.total, 3);
+  eq_(s, 'blank stays blank not zero', good.values['White Mix'], '');
+
+  var zero = validateBatch_({ date: '2026-11-17', values: { 'Batter': 0, 'Cream': 1 } });
+  eq_(s, 'explicit zero stored as blank', zero.values['Batter'], '');
+  eq_(s, 'zero plus real value sums correctly', zero.total, 1);
+
+  eq_(s, 'empty batch rejected',
+    validateBatch_({ date: '2026-11-17', values: { 'Batter': '', 'Cream': '' } }).ok, false);
+  eq_(s, 'all-zero batch rejected',
+    validateBatch_({ date: '2026-11-17', values: { 'Batter': 0 } }).ok, false);
+  eq_(s, 'negative rejected',
+    validateBatch_({ date: '2026-11-17', values: { 'Batter': -1 } }).ok, false);
+  eq_(s, 'non-numeric rejected',
+    validateBatch_({ date: '2026-11-17', values: { 'Batter': 'abc' } }).ok, false);
+  eq_(s, 'missing date rejected',
+    validateBatch_({ date: '', values: { 'Batter': 1 } }).ok, false);
+  eq_(s, 'future date rejected',
+    validateBatch_({ date: '2099-01-01', values: { 'Batter': 1 } }).ok, false);
+  eq_(s, 'no payload rejected', validateBatch_(null).ok, false);
+
+  // A batch on a closed day is legitimate (the source has Wednesday batches) but warns.
+  var closed = validateBatch_({ date: '2026-11-04', values: { 'Batter': 1 } }, true);
+  eq_(s, 'closed-day batch still saves', closed.ok, true);
+  eq_(s, 'closed-day batch warns', closed.warnings.length > 0, true);
+
+  var open = validateBatch_({ date: '2026-11-04', values: { 'Batter': 1 } }, false);
+  eq_(s, 'open-day batch does not warn', open.warnings.length, 0);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Measurements validation — README §3.1, §9
+// ---------------------------------------------------------------------------
+
+function testMeasurementsValidation() {
+  var s = newSuite_();
+
+  // The seed itself must satisfy every rule, since it is what seeds the sheet.
+  eq_(s, 'seed has 17 ingredients', MEASUREMENTS_SEED.length, 17);
+
+  var excluded = MEASUREMENTS_SEED.filter(function (r) {
+    return normaliseItemName_(r.ingredient) === 'empty container' ||
+           normaliseItemName_(r.ingredient) === 'waste';
+  });
+  eq_(s, 'seed excludes Empty Container and Waste', excluded.length, 0);
+
+  var orphans = MEASUREMENTS_SEED.filter(function (r) { return !findItem_(r.ingredient); });
+  eq_(s, 'every seed ingredient is in the item master', orphans.length, 0);
+
+  // Blanks must be empty strings, never 0 (§3.1).
+  var flour = MEASUREMENTS_SEED.filter(function (r) { return r.ingredient === 'Flour'; })[0];
+  eq_(s, 'Flour Batter', flour.Batter, 500);
+  eq_(s, 'Flour Cream is blank string', flour.Cream, '');
+  eq_(s, 'Flour Cream is not numeric zero', typeof flour.Cream, 'string');
+
+  // Blank must read as 0 through the accessor, without becoming a stored zero.
+  eq_(s, 'measurementFor blank returns 0', measurementFor_('Flour', 'Cream'), 0);
+  eq_(s, 'measurementFor real value', measurementFor_('Butter', 'Cheese'), 60);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Consumption formula — Measurements x Batches (README §3.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The whole point of Phase 5 is that these numbers are exact. Expected values are
+ * the source workbook's own Stock.TotalUsed for the real batch totals.
+ */
+function testConsumptionFormula() {
+  var s = newSuite_();
+
+  var totals = { 'Batter': 33.5, 'Nutella Mix': 25, 'Cream': 13, 'White Mix': 1, 'Cheese': 1 };
+
+  var expected = [
+    ['Flour', 16750], ['Corn Flour', 5025], ['Sugar', 3350], ['Salt', 201],
+    ['B. Powder', 335], ['B. Soda', 201], ['Egg', 201], ['Milk', 33500],
+    ['Oil', 19250], ['Butter', 8235], ['Vanilla', 335], ['Nutella', 4375],
+    ['White Chocolate', 500], ['Milk Chocolate', 13750], ['Icing Sugar', 680],
+    ['Whipped Cream', 6700], ['Cream Cheese', 175]
+  ];
+
+  expected.forEach(function (pair) {
+    eq_(s, 'consumption ' + pair[0], consumptionFromSeed_(pair[0], totals), pair[1]);
+  });
+
+  // An ingredient used in exactly one preparation.
+  eq_(s, 'Butter Batter component', 150 * 33.5, 5025);
+  eq_(s, 'Butter Cheese component', 60 * 1, 60);
+  eq_(s, 'Butter total', 5025 + 120 * 25 + 150 * 1 + 60 * 1, 8235);
+
+  return s;
+}
+
+/** Seed-based consumption, mirroring ingredientConsumption_ without sheet access. */
+function consumptionFromSeed_(ingredient, totals) {
+  var row = null;
+  for (var i = 0; i < MEASUREMENTS_SEED.length; i++) {
+    if (MEASUREMENTS_SEED[i].ingredient === ingredient) { row = MEASUREMENTS_SEED[i]; break; }
+  }
+  if (!row) return null;
+  var sum = 0;
+  PREPARATIONS.forEach(function (prep) {
+    var per = row[prep];
+    if (isBlank_(per)) return;
+    sum += Number(per) * (totals[prep] || 0);
+  });
+  return sum;
+}
+
+// ---------------------------------------------------------------------------
+// Public function surface for the Batches sidebar
+// ---------------------------------------------------------------------------
+
+function testBatchFunctionsExist() {
+  var s = newSuite_();
+
+  // google.script.run can only see public (no trailing underscore) functions.
+  eq_(s, 'getBatchFormOptions is public', typeof getBatchFormOptions, 'function');
+  eq_(s, 'getBatchForDate is public', typeof getBatchForDate, 'function');
+  eq_(s, 'saveBatch is public', typeof saveBatch, 'function');
+  eq_(s, 'deleteBatch is public', typeof deleteBatch, 'function');
+  eq_(s, 'getRecentBatches is public', typeof getRecentBatches, 'function');
+
+  // Preparations must match the required order (§3.2).
+  eq_(s, 'preparations in order', PREPARATIONS.join('|'),
+    'Batter|Nutella Mix|Cream|White Mix|Cheese');
 
   return s;
 }

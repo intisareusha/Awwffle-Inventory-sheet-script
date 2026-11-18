@@ -476,8 +476,8 @@ I will keep this table updated so we both know where we stand.
 |---|---|---|---|---|---|
 | 2 — data model | yes | 177 tests pass | reviewed and run | **approved** | not yet |
 | 3 — migration | yes | 42/42 checks, 0 attention | reviewed and run | **approved** | not yet |
-| 4 — bazar | yes | 177 tests, 40 Bazar assertions | **awaiting your review** | — | not yet |
-| 5 — measurements / batches | — | — | — | — | — |
+| 4 — bazar | yes | 188 tests, 40 Bazar assertions | reviewed and run | **approved** | not yet |
+| 5 — measurements / batches | yes | 238 tests + 59 integration | **awaiting your review** | — | not yet |
 | 6 — stock | — | — | — | — | — |
 | 7 — POS | — | — | — | — | — |
 | 8 — reports | — | — | — | — | — |

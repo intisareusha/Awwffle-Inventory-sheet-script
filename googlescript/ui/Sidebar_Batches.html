@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input, select, textarea {
+      width: 100%; padding: 6px 7px; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 13px; font-family: inherit; background: #fff;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent;
+    }
+    .row { margin-bottom: 9px; }
+    .prep-row {
+      display: grid; grid-template-columns: 1fr 100px; gap: 8px;
+      align-items: center; padding: 5px 0; border-bottom: 1px solid #f1f3f4;
+    }
+    .prep-row:last-child { border-bottom: none; }
+    .prep-name { font-size: 13px; }
+    .prep-hint { font-size: 10px; color: #80868b; }
+    button {
+      padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit;
+    }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button.danger { color: #c5221f; border-color: #f5c6c2; }
+    button.danger:hover { background: #fce8e6; }
+    button:disabled { opacity: .5; cursor: default; }
+    .actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+    .actions .spacer { flex: 1; }
+    #total { font-size: 15px; font-weight: 600; }
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
+           font-size: 12px; white-space: pre-wrap; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+    .mode { font-size: 11px; padding: 3px 8px; border-radius: 10px; margin-left: 6px; }
+    .mode.edit { background: #fef7e0; color: #b06000; }
+    #recent { max-height: 210px; overflow-y: auto; }
+    .recent-item {
+      display: flex; justify-content: space-between; padding: 5px 6px;
+      border-bottom: 1px solid #f1f3f4; cursor: pointer; font-size: 12px;
+    }
+    .recent-item:hover { background: #f8f9fa; }
+    .recent-item .d { font-weight: 500; }
+    .recent-item .t { color: #5f6368; }
+    .closed-flag { color: #b06000; font-size: 11px; }
+    .muted { color: #5f6368; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h2>Daily batches <span id="mode" class="mode" style="display:none"></span></h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="row">
+    <label for="date">Production date</label>
+    <input type="date" id="date">
+    <div id="closedNote" class="closed-flag"></div>
+  </div>
+
+  <fieldset>
+    <legend>Batches made <span class="muted">(fractions allowed, e.g. 0.5)</span></legend>
+    <div id="preps"></div>
+  </fieldset>
+
+  <div class="row">
+    <label for="notes">Notes (optional)</label>
+    <input type="text" id="notes" placeholder="e.g. extra batter for a big order">
+  </div>
+
+  <div class="actions">
+    <span>Total: <span id="total">0</span> batches</span>
+    <span class="spacer"></span>
+    <button type="button" id="delete" class="danger" style="display:none">Delete</button>
+    <button type="button" id="save" class="primary">Save batch</button>
+  </div>
+
+  <fieldset style="margin-top:12px">
+    <legend>Recent batches</legend>
+    <div id="recent"></div>
+  </fieldset>
+
+<script>
+  var OPTIONS = null;
+
+  google.script.run
+    .withSuccessHandler(function (opts) { OPTIONS = opts; init(); })
+    .withFailureHandler(function (err) {
+      showMsg('Could not load: ' + (err && err.message ? err.message : err), 'error');
+      document.getElementById('save').disabled = true;
+    })
+    .getBatchFormOptions();
+
+  function init() {
+    document.getElementById('date').value = OPTIONS.today;
+
+    // Surface recipe problems before the owner enters data that depends on it.
+    if (OPTIONS.measurementErrors && OPTIONS.measurementErrors.length) {
+      showMsg('The recipe (Measurements) has problems, so stock calculations would be wrong:\n' +
+        OPTIONS.measurementErrors.join('\n'), 'error');
+    } else if (OPTIONS.measurementWarnings && OPTIONS.measurementWarnings.length) {
+      showMsg('Recipe note:\n' + OPTIONS.measurementWarnings.join('\n'), 'warn');
+    }
+
+    var container = document.getElementById('preps');
+    OPTIONS.preparations.forEach(function (prep) {
+      var div = document.createElement('div');
+      div.className = 'prep-row';
+      div.innerHTML =
+        '<div><div class="prep-name">' + prep + '</div></div>' +
+        '<div><input type="number" class="prep qty" step="any" min="0" ' +
+        'data-prep="' + prep + '" placeholder="0"></div>';
+      container.appendChild(div);
+      div.querySelector('.qty').addEventListener('input', recalc);
+    });
+
+    document.getElementById('date').addEventListener('change', onDateChange);
+    document.getElementById('save').addEventListener('click', save);
+    document.getElementById('delete').addEventListener('click', remove);
+
+    renderRecent();
+    onDateChange();
+    recalc();
+  }
+
+  function qtyInputs() {
+    return Array.prototype.slice.call(document.querySelectorAll('.prep.qty'));
+  }
+
+  function recalc() {
+    var total = 0;
+    qtyInputs().forEach(function (inp) {
+      var v = parseFloat(inp.value);
+      if (!isNaN(v) && v > 0) total += v;
+    });
+    document.getElementById('total').textContent = total;
+    return total;
+  }
+
+  // Switching to a date that already has a batch loads it for editing, so a
+  // correction never creates a second row (§3.2).
+  function onDateChange() {
+    var date = document.getElementById('date').value;
+    if (!date) return;
+    google.script.run
+      .withSuccessHandler(function (existing) {
+        var modeEl = document.getElementById('mode');
+        var delBtn = document.getElementById('delete');
+
+        if (!existing) {
+          modeEl.style.display = 'none';
+          delBtn.style.display = 'none';
+          qtyInputs().forEach(function (i) { i.value = ''; });
+          document.getElementById('notes').value = '';
+          setClosedNote(false);
+          recalc();
+          return;
+        }
+
+        modeEl.textContent = 'editing saved batch';
+        modeEl.className = 'mode edit';
+        modeEl.style.display = 'inline-block';
+        delBtn.style.display = 'inline-block';
+
+        qtyInputs().forEach(function (inp) {
+          var v = existing.values[inp.dataset.prep];
+          inp.value = (v === '' || v == null) ? '' : v;
+        });
+        setClosedNote(existing.isClosed);
+        recalc();
+      })
+      .withFailureHandler(function (err) { showMsg('Could not load that date: ' + err.message, 'error'); })
+      .getBatchForDate(date);
+  }
+
+  function setClosedNote(isClosed) {
+    var el = document.getElementById('closedNote');
+    el.textContent = isClosed
+      ? 'This date is recorded as a closed day. Saving is allowed — check the date if unexpected.'
+      : '';
+  }
+
+  function collect() {
+    var values = {};
+    qtyInputs().forEach(function (inp) {
+      values[inp.dataset.prep] = inp.value === '' ? '' : inp.value;
+    });
+    return {
+      date: document.getElementById('date').value,
+      values: values,
+      notes: document.getElementById('notes').value
+    };
+  }
+
+  function save() {
+    hideMsg();
+    var btn = document.getElementById('save');
+    btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { showMsg(res.errors.join('\n'), 'error'); return; }
+        showMsg(res.message, res.closedDay ? 'warn' : 'ok');
+        onDateChange();
+        refreshRecent();
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .saveBatch(collect());
+  }
+
+  function remove() {
+    var date = document.getElementById('date').value;
+    if (!date) return;
+    if (!confirm('Delete the batch for ' + date + '? This removes that day’s usage.')) return;
+
+    document.getElementById('delete').disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        document.getElementById('delete').disabled = false;
+        if (!res.ok) { showMsg(res.errors.join('\n'), 'error'); return; }
+        showMsg(res.message, 'ok');
+        onDateChange();
+        refreshRecent();
+      })
+      .withFailureHandler(function (err) {
+        document.getElementById('delete').disabled = false;
+        showMsg('Error: ' + err.message, 'error');
+      })
+      .deleteBatch(date);
+  }
+
+  function refreshRecent() {
+    google.script.run
+      .withSuccessHandler(function (rows) { renderList(rows); })
+      .withFailureHandler(function () {})
+      .getRecentBatches(30);
+  }
+
+  function renderRecent() { renderList(OPTIONS.recent || []); }
+
+  function renderList(rows) {
+    var el = document.getElementById('recent');
+    el.innerHTML = '';
+    if (!rows.length) {
+      el.innerHTML = '<div class="muted">No batches recorded yet.</div>';
+      return;
+    }
+    rows.forEach(function (r) {
+      var d = document.createElement('div');
+      d.className = 'recent-item';
+      var parts = [];
+      OPTIONS.preparations.forEach(function (p) {
+        var v = r.values[p];
+        if (v !== '' && v != null && v !== 0) parts.push(p + ' ' + v);
+      });
+      d.innerHTML = '<span class="d">' + r.key + '</span>' +
+                    '<span class="t">' + (parts.join(', ') || '—') + '</span>';
+      d.addEventListener('click', function () {
+        document.getElementById('date').value = r.key;
+        onDateChange();
+      });
+      el.appendChild(d);
+    });
+  }
+
+  function showMsg(text, kind) {
+    var el = document.getElementById('msg');
+    el.className = 'msg ' + (kind || 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  function hideMsg() {
+    document.getElementById('msg').style.display = 'none';
+  }
+</script>
+</body>
+</html>
