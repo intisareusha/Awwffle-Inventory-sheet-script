@@ -19,7 +19,10 @@ function runAllTests() {
     testItemMasterIntegrity,
     testAliasMapping,
     testDateHelpers,
-    testMeasurementMatrix
+    testMeasurementMatrix,
+    testExpenseClassification,
+    testDailyWaffleParsing,
+    testReportRowFormatting
   ];
 
   var passed = 0;
@@ -327,6 +330,120 @@ function testMeasurementMatrix() {
   eq_(s, 'measurementFor Flour/Cream', measurementFor_('Flour', 'Cream'), 0);
   eq_(s, 'isRecipeIngredient Flour', isRecipeIngredient_('Flour'), true);
   eq_(s, 'isRecipeIngredient Tissue', isRecipeIngredient_('Tissue'), false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Expense classification — README §5.3, §9, D1
+// ---------------------------------------------------------------------------
+
+function testExpenseClassification() {
+  var s = newSuite_();
+
+  // Non-inventory names from the source map to their expense type (§5.3).
+  var salary = classifyExpense_('Salary');
+  eq_(s, 'Salary type', salary.expenseType, 'Salary');
+  eq_(s, 'Salary never touches stock', salary.expenseType === EXPENSE_TYPE_INVENTORY, false);
+
+  var courier = classifyExpense_('Currier Charge');
+  eq_(s, 'Currier Charge -> Courier', courier.expenseType, 'Courier');
+  eq_(s, 'Currier reported as alias', courier.aliasUsed, true);
+
+  var insect = classifyExpense_('Insect Light');
+  eq_(s, 'Insect Light -> Maintenance', insect.expenseType, 'Maintenance');
+
+  // An ordinary item is an inventory purchase.
+  var flour = classifyExpense_('Flour');
+  eq_(s, 'Flour -> Inventory purchase', flour.expenseType, EXPENSE_TYPE_INVENTORY);
+  eq_(s, 'Flour item name', flour.itemName, 'Flour');
+
+  // Aliases resolve to canonical names.
+  eq_(s, 'Kitkat alias item', classifyExpense_('Kitkat (4 fingers)').itemName, 'Kitkat');
+  eq_(s, 'Waffle Stick alias', classifyExpense_('Waffle Stick').itemName, 'Waffle Sticks Large');
+  eq_(s, 'Poly Bag alias', classifyExpense_('Poly Bag').itemName, 'Poly bag');
+  eq_(s, 'padded Syrup alias', classifyExpense_(' Syrup Hersheys').itemName, 'Syrup Hersheys');
+
+  // Padded and unpadded Kitkat are the same item, both flagged as alias hits.
+  eq_(s, 'Kitkat padded is alias', classifyExpense_('Kitkat ').aliasUsed, true);
+  eq_(s, 'Kitkat clean is not alias', classifyExpense_('Kitkat').aliasUsed, false);
+  eq_(s, 'padded Syrup is alias', classifyExpense_(' Syrup Hersheys').aliasUsed, true);
+  eq_(s, 'clean Syrup is not alias', classifyExpense_('Syrup Hersheys').aliasUsed, false);
+
+  // Unknown names must be flagged, never silently created (§5.3).
+  var unknown = classifyExpense_('Unobtanium');
+  eq_(s, 'unknown flagged', unknown.unknown, true);
+  eq_(s, 'unknown is Other', unknown.expenseType, 'Other');
+  eq_(s, 'unknown has no item', unknown.itemName, '');
+
+  // The finished product is not an ingredient (§13.C20).
+  eq_(s, 'Kit-Kat Kraze is unknown as item', classifyExpense_('Kit-Kat Kraze').unknown, true);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Daily Waffles block parsing — README §17.7, D4
+// ---------------------------------------------------------------------------
+
+function testDailyWaffleParsing() {
+  var s = newSuite_();
+
+  // The tricky part: the date-label row ALSO carries the first product.
+  eq_(s, 'parseDayLabel Oct 17', dateKey_(parseDayLabel_('Oct 17: Day 1', 2026)), '2026-10-17');
+  eq_(s, 'parseDayLabel Nov 16', dateKey_(parseDayLabel_('Nov 16: Day 28', 2026)), '2026-11-16');
+  eq_(s, 'parseDayLabel rejects junk', parseDayLabel_('Batch: B1:N1:C0', 2026), null);
+  eq_(s, 'parseDayLabel rejects numbers', parseDayLabel_('2891.0', 2026), null);
+
+  // A block-shaped fixture, including the footer and a stray numeric row.
+  var fixture = [
+    ['Date', 'Product', 'Pv. Stock', 'Cr. Stock', 'Waffles'],
+    ['Oct 17: Day 1', 'Extra Banana', 10000, 10000, 0],
+    ['', 'Extra Nut', 10000, 10000, 0],
+    ['', 'Water 500ml', 10000, 9999, 1],
+    ['', 'Batch: B1:N1:C0', '', '', 28],
+    ['', 2891, '', '', ''],
+    ['Oct 18: Day 2', 'Extra Banana', 10000, 9998, 2]
+  ];
+  var fakeSheet = {
+    getLastRow: function () { return fixture.length; },
+    getRange: function () {
+      return { getValues: function () { return fixture; } };
+    }
+  };
+
+  var blocks = parseDailyWaffleBlocks_(fakeSheet);
+  eq_(s, 'blocks parsed', blocks.length, 2);
+  eq_(s, 'first block product count', blocks[0].products.length, 3);
+  eq_(s, 'first product is on the label row', blocks[0].products[0].product, 'Extra Banana');
+  eq_(s, 'footer captured', blocks[0].footer.label, 'Batch: B1:N1:C0');
+  eq_(s, 'footer total', toNumber_(blocks[0].footer.total), 28);
+  eq_(s, 'stray numeric row ignored', blocks[0].products.length, 3);
+  eq_(s, 'second block has its own products', blocks[1].products.length, 1);
+  eq_(s, 'second block date', dateKey_(blocks[1].date), '2026-10-18');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Reconciliation report formatting — README §9.9
+// ---------------------------------------------------------------------------
+
+function testReportRowFormatting() {
+  var s = newSuite_();
+
+  var ok = reportRow_('Bazar', 'Rows imported', 72, 72, true, '');
+  eq_(s, 'ok row section', ok[0], 'Bazar');
+  eq_(s, 'ok row status', ok[5], 'OK');
+  eq_(s, 'ok row difference', ok[4], 0);
+
+  var bad = reportRow_('Bazar', 'Rows imported', 72, 70, false, 'two missing');
+  eq_(s, 'bad row status', bad[5], 'CHECK');
+  eq_(s, 'bad row difference', bad[4], -2);
+
+  // Non-numeric expectations must not produce a bogus numeric difference.
+  var text = reportRow_('POS', 'Sold == prev - curr', 'all rows', 'all rows', true, '');
+  eq_(s, 'text row status', text[5], 'OK');
 
   return s;
 }

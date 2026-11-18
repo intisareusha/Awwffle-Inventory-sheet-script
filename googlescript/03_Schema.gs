@@ -135,7 +135,33 @@ SCHEMA[SHEETS.INVOICES] = [
   'Last Invoice No',
   'Invoice Count',
   'Baseline Used',      // how the first day was seeded (§7.2)
+  'Source',             // Daily | Monthly aggregate (migration only, §7.2)
   'Entered At'
+];
+
+/**
+ * OpeningStock — the pre-Bazar stock layer (README §6.3).
+ * Kept as its own sheet, NOT folded into purchases, so the October purchase
+ * history stays visible and auditable instead of being baked into a number.
+ */
+SCHEMA[SHEETS.OPENING_STOCK] = [
+  'Item',
+  'As Of Date',         // the cut-off date, 2026-10-09
+  'Quantity',           // in the item's base unit
+  'Rate',               // per kg / l / p, from the Stock sheet
+  'Value',
+  'Source Row',         // where in the source workbook this came from
+  'Note'
+];
+
+SCHEMA[SHEETS.MIGRATION_REPORT] = [
+  'Section',
+  'Check',
+  'Expected',
+  'Actual',
+  'Difference',
+  'Status',
+  'Detail'
 ];
 
 /**
@@ -148,6 +174,7 @@ SCHEMA[SHEETS.DISCOUNT_DUE] = [
   'Due Accrued',
   'Due Settled',
   'Customer',           // optional (§13.B16)
+  'Source',             // Daily | Monthly aggregate (migration only)
   'Entered At',
   'Notes'
 ];
@@ -262,7 +289,9 @@ function sourceSheetOrder_() {
     SHEETS.INVOICES,
     SHEETS.DISCOUNT_DUE,
     SHEETS.CLOSED_DAYS,
-    SHEETS.ADJUSTMENTS
+    SHEETS.ADJUSTMENTS,
+    SHEETS.OPENING_STOCK,
+    SHEETS.MIGRATION_REPORT
   ];
 }
 

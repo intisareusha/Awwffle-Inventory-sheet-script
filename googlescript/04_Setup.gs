@@ -57,7 +57,11 @@ function setupSpreadsheet_() {
   // 7. Seed the current price into PriceHistory so historic reports have a base
   seedPriceHistory_(seeded);
 
-  // 8. View sheets (headers only — formulas arrive in later phases)
+  // 8. Migration output sheets (written by Phase 3, empty until it runs)
+  ensureSheetWithHeaders_(SHEETS.OPENING_STOCK, SCHEMA[SHEETS.OPENING_STOCK], created, skipped);
+  ensureSheetWithHeaders_(SHEETS.MIGRATION_REPORT, SCHEMA[SHEETS.MIGRATION_REPORT], created, skipped);
+
+  // 9. View sheets (headers only — formulas arrive in later phases)
   ensureSheetWithHeaders_(SHEETS.STOCK, SCHEMA[SHEETS.STOCK], created, skipped);
   ensureSheetWithHeaders_(SHEETS.DAILY_WAFFLES, SCHEMA[SHEETS.DAILY_WAFFLES], created, skipped);
   ensureSheetWithHeaders_(SHEETS.ALL_TIME, SCHEMA[SHEETS.ALL_TIME], created, skipped);

@@ -1,5 +1,5 @@
 # Taste
-- Wants full understanding and clarification before implementation: read and evaluate the source material first, ask blocking questions, and wait for answers rather than starting to build. Confidence: 0.65
+- Wants full understanding and clarification before implementation: read and evaluate the source material first, ask blocking questions, and wait for answers rather than starting to build. When they ask for an explanation ("drop answer below", "just explain"), answer in the chat and change no files. Confidence: 0.7
 - Do not modify source/data files during review or analysis work — report findings and recommendations in the chat/README only, leaving files untouched ("Do not change any file, only write here"). Confidence: 0.8
 - Wants one canonical naming convention for items across the whole system — no variant spellings/aliases per sheet; align every sheet to the canonical names used in the master Stock list. Confidence: 0.75
 - Wants explanations and questions phrased in plain, easy language with no jargon, because they need to understand what they're answering ("Ask in easy language so i can understand easily"). Confidence: 0.75
@@ -9,3 +9,4 @@
 - Wants decisions agreed in chat written back into the spec/README before implementation starts ("Update the readme first the decisions we have just made. Then tell me if you are ready") — docs-first workflow, not code-first. Confidence: 0.65
 - Prefers one general formula/rule for calculations over chained special-case branching — e.g. a single rate/unit conversion rule that covers every case so no value is dropped ("Drop best formula for rates units so no value drops"). Confidence: 0.6
 - Prefers large builds delivered phase by phase with review checkpoints, so they can track progress and correct it early, rather than one big drop at the end ("go phase by phase? So i can track and help you make it better"). Confidence: 0.6
+- Deploys by manually pasting files into the Apps Script editor, so hand-off instructions should be terse and concrete — exactly which files to overwrite vs. create, then the exact functions to run and in what order ("Just drop the steps") — not narrative docs. Confidence: 0.55

@@ -15,6 +15,9 @@ function installMenu_() {
 
   menu.addItem('Setup / Update structure', 'menuRunSetup');
   menu.addSeparator();
+  menu.addItem('Import historical data', 'menuRunMigration');
+  menu.addItem('Open migration report', 'menuOpenMigrationReport');
+  menu.addSeparator();
 
   // Later phases add their entries here. Items are added as each phase lands so
   // the menu never offers something that does not work yet.
@@ -33,6 +36,30 @@ function menuRunSetup() {
   );
   if (answer !== ui.Button.YES) return;
   runSetup();
+}
+
+function menuRunMigration() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'Import historical data',
+    'This reads the old workbook from Drive and imports its history into this sheet.\n\n' +
+    'The source file is never modified. A reconciliation report is written so you ' +
+    'can check every imported figure.\n\nContinue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+  runMigration();
+}
+
+function menuOpenMigrationReport() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEETS.MIGRATION_REPORT);
+  if (!sheet || sheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert('Migration report',
+      'No report yet. Run "Import historical data" first.', SpreadsheetApp.getUi().ButtonSet.OK);
+    return;
+  }
+  ss.setActiveSheet(sheet);
 }
 
 function menuShowSystemInfo() {

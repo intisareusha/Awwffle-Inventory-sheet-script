@@ -474,8 +474,8 @@ I will keep this table updated so we both know where we stand.
 
 | phase | built | self-tested | handed to you | your verdict | committed |
 |---|---|---|---|---|---|
-| 2 — data model | yes | 106 tests pass | **awaiting your review** | — | not yet |
-| 3 — migration | — | — | — | — | — |
+| 2 — data model | yes | 143 tests pass | reviewed and run | **approved** | not yet |
+| 3 — migration | yes | 42/42 checks, 0 attention | **awaiting your review** | — | not yet |
 | 4 — bazar | — | — | — | — | — |
 | 5 — measurements / batches | — | — | — | — | — |
 | 6 — stock | — | — | — | — | — |
@@ -537,5 +537,66 @@ I will keep this table updated so we both know where we stand.
 **Deliberately not done yet:** no entry forms, no calculations, no migration, no
 reports. `Stock`, `DailyWaffles`, `AllTime` exist with headers only.
 
-**Next after your ok:** Phase 3, historical migration — which is where your real
-numbers (831 / 104,940 / 65,770) first get checked.
+**Next after your ok:** Phase 4 — Bazar entry form, which is where you start entering
+live purchases.
+
+---
+
+## 10. Phase 3 hand-off — review note
+
+**Built:** `05_Migration.gs`, `05b_MigrationWorkers.gs`, `05c_MigrationPos.gs`,
+`05d_MigrationRest.gs`, `05e_MigrationReport.gs`, `docs/MIGRATION.md`, plus a
+`OpeningStock` and `MigrationReport` sheet, and menu entries.
+
+**Test evidence:** I built a full end-to-end simulation using your real workbook
+data as the source. **42 of 42 reconciliation checks pass, 0 need attention.** All
+143 unit tests pass.
+
+| check | expected | got |
+|---|---|---|
+| Bazar rows | 72 | 72 |
+| Bazar Oct / Nov / total | 53,890 / 39,050 / 92,940 | exact |
+| Batches | 30, totals 33.5 / 25 / 13 / 1 / 1 | exact |
+| POS snapshots | 28 days × 18 = 504 | 504 |
+| Waffles sold | 831 | 831 |
+| Extras sold | 25 | 25 |
+| Original Sale | 104,940 | 104,940 |
+| POS Cost | 54,094 | 54,094 |
+| Cash in hand | 65,770 | 65,770 |
+| Open days | 28 | 28 |
+| Items explained by purchases | 40 of 43 | 40 of 43 |
+| Milk opening after correction | 2,000 ml | 2,000 ml |
+
+**A mistake I made and fixed.** My first idempotency test showed that a second run
+would double *six of seven* tables — only `Batches` had a guard. Worse,
+`OpeningStock` re-read the already-doubled Bazar, so errors would compound. Every
+worker now dedupes on source provenance, and the second run leaves all row counts
+unchanged.
+
+**Decisions I had to make that the README did not cover:**
+
+- **Closed days: 22 October is marked `Unconfirmed`, not `Closed`.** It is a
+  Thursday, not a Wednesday. §13.A7 says a missed entry must not be mistaken for a
+  closure, so I recorded the fact rather than inventing a reason.
+- **Invoice and discount/due come in as monthly aggregates**, dated to month end
+  and labelled `Source = Monthly aggregate`. No daily history exists, and I did
+  not fabricate one.
+- **The 34 BDT discount residual stays unallocated.** Spreading it across months
+  would invent data.
+- **Opening stock is its own sheet**, not folded into Bazar, so October remains
+  visible and auditable (§6.3).
+- **The source must be a separate Drive file** — its tab names collide with ours.
+  You confirmed this choice.
+
+**What to check yourself:**
+
+1. Open **MigrationReport**. Are there any `CHECK` rows? (There should be none.)
+2. Read the **CORRECTIONS** section — every defect with before/after. Do you accept
+   each one, especially the Milk `6 p → 6 l`?
+3. Open **OpeningStock** — confirm only Milk, Waffle Box and Waffle Tray have a
+   non-zero quantity and everything else is 0.
+4. Run the import a second time and confirm nothing duplicates.
+5. Check **ClosedDays** — 4 Nov and 11 Nov as Closed, 22 Oct as Unconfirmed.
+
+**Deliberately not done yet:** no entry forms, no stock calculation. `Stock`,
+`DailyWaffles` and `AllTime` still have headers only.

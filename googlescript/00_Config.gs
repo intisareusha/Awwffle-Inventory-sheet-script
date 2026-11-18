@@ -22,6 +22,8 @@ var SHEETS = {
   DISCOUNT_DUE: 'DiscountDue',
   CLOSED_DAYS: 'ClosedDays',
   ADJUSTMENTS: 'Adjustments',
+  OPENING_STOCK: 'OpeningStock',
+  MIGRATION_REPORT: 'MigrationReport',
 
   // View sheets — formula driven, never written with data.
   STOCK: 'Stock',
@@ -114,7 +116,16 @@ var SETTINGS_SCHEMA = [
   { key: 'default_low_stock_days',      type: 'number', value: 3, editable: true,
     note: 'Warn when remaining stock is under this many TRADING days.' },
   { key: 'default_low_batches',         type: 'number', value: 2, editable: true,
-    note: 'Warn when remaining stock supports fewer than this many batches.' }
+    note: 'Warn when remaining stock supports fewer than this many batches.' },
+
+  // Migration (Phase 3). The source lives in a SEPARATE spreadsheet, because its
+  // tab names (Batches, Bazar, Measurements) are identical to the new ones.
+  { key: 'migration_source_name', type: 'text', value: 'Current Blueprint', editable: true,
+    note: 'File name in Drive of the Google Sheet copy of the old workbook.' },
+  { key: 'migration_source_id',   type: 'text', value: '', editable: true,
+    note: 'Optional: paste the spreadsheet ID to skip the name lookup.' },
+  { key: 'migration_completed_at', type: 'text', value: '', editable: false,
+    note: 'Guard set automatically after a migration run. Blank it before re-running.' }
 ];
 
 /**
