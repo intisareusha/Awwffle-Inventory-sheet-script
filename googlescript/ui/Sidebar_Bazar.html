@@ -329,8 +329,11 @@
   // -------------------------------------------------------------------------
 
   function refreshSaved() {
-    // No date filter: the list always shows recent purchases across all dates.
-    // Selecting a date only matters when saving, not for browsing what exists.
+    // Filtered by the date field: the list is "what was bought on this day", so a
+    // day with no purchases shows an empty list rather than the entire history.
+    // Picking a date also tells you what you are about to add to.
+    var date = document.getElementById('date').value;
+
     google.script.run
       .withSuccessHandler(renderSaved)
       .withFailureHandler(function (err) {
@@ -340,7 +343,7 @@
           '<div class="hint" style="color:#a50e0e">Could not load saved lines: ' +
           (err && err.message ? err.message : err) + '</div>';
       })
-      .getRecentBazarLines(100);
+      .getRecentBazarLines(200, date || null);
   }
 
   function highlightSaved(recordId) {
@@ -359,7 +362,7 @@
     el.innerHTML = '';
 
     if (!rows || !rows.length) {
-      el.innerHTML = '<div class="hint">No purchases recorded yet.</div>';
+      el.innerHTML = '<div class="hint">No purchases recorded on this date yet.</div>';
       return;
     }
 
@@ -375,9 +378,8 @@
 
       var left = document.createElement('span');
       left.className = 'l';
-      // Without a date filter the list spans many days, so show the date on
-      // each line or two identical purchases on different days look confusing.
-      left.textContent = r.date + '  ' + r.label + '  ' +
+      // The list is already one day, so the date is not repeated per line.
+      left.textContent = r.label + '  ' +
         (r.quantity == null ? '' : r.quantity) + ' ' + r.unit;
 
       var right = document.createElement('span');
@@ -404,7 +406,7 @@
     foot.style.fontWeight = '600';
     var footL = document.createElement('span');
     footL.className = 'l';
-    footL.textContent = rows.length + ' recent line(s)';
+    footL.textContent = rows.length + ' line(s) on this date';
     var footR = document.createElement('span');
     footR.className = 'r';
     footR.textContent = (Math.round(dayTotal * 100) / 100) + ' BDT';

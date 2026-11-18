@@ -24,24 +24,40 @@ Open it from **Awwffle → Daily entry → Record a purchase (Bazar)**.
 
 ## Editing and deleting a saved line
 
-Below the form is **Saved lines**, showing your most recent purchases across
-**all dates** — the date field only affects saving, not browsing.
+Below the form is **Saved lines**, showing what was bought **on the date in the
+date field**. Change the date to see that day; a day with nothing recorded shows
+an empty list rather than your whole history.
 
 - **Click any line** to load it into the form. A yellow banner appears:
   > **Editing a saved line from 2026-11-12. Saving updates it.**  **[Delete] [Cancel]**
 
-- The date field moves to that line's date, and the button changes to
-  **Update line**. Correct anything and save. The row is **updated in place** — it
-  keeps its Record ID, so nothing is duplicated and history is not rewritten (§11).
+- The button changes to **Update line**. Correct anything and save. The row is
+  **updated in place** — it keeps its Record ID, so nothing is duplicated and
+  history is not rewritten (§11).
 - **Delete** removes that one line, after a confirmation naming what will go.
 - **Cancel** leaves edit mode without changing anything.
 
-Each line shows its own date, because the list spans many days. The footer gives
-the line count and their combined total.
+The footer gives the line count and that day's total.
 
 > **If the list looks empty** but you know you have purchases, it will now say why
 > in red rather than showing nothing. The most likely cause is that
 > `06_Bazar.gs` was not re-pasted, so the server is missing the new functions.
+
+---
+
+## Row order in the Bazar sheet
+
+The Bazar table is kept in **date order, oldest first**, after every add or edit.
+
+This matters because a backdated purchase is appended to the bottom by the
+Sheets API. Without sorting, entering a November purchase and then an October one
+would leave the table out of order.
+
+- Sorting is **stable**: rows recorded in the same invoice keep their entry order,
+  because only the date is compared.
+- A row's **Record ID never changes** — it is the identity, not the row number
+  (§2.7). Sorting moves rows, never records.
+- If nothing is out of order, nothing is written.
 
 ### What editing does and does not change
 

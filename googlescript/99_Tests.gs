@@ -26,6 +26,7 @@ function runAllTests() {
     testBazarValidation,
     testBazarDuplicates,
     testBazarEditValidation,
+    testBazarDateOrdering,
     testSidebarContract,
     testBatchValidation,
     testMeasurementsValidation,
@@ -711,6 +712,62 @@ function testBazarEditValidation() {
   }, []);
   eq_(s, 'edited amount recomputed', revalued.total, 1020);
   eq_(s, 'edited base quantity recomputed', revalued.rows[0][12], 12000);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Bazar date ordering and filtering
+// ---------------------------------------------------------------------------
+
+/**
+ * The sheet must stay in date order so a backdated purchase is readable and the
+ * date-filtered sidebar list is meaningful. Sorting is stable, so rows recorded in
+ * the same invoice keep their entry order.
+ *
+ * These test the pure comparator logic, not the sheet write, because sorting a
+ * live sheet needs a spreadsheet.
+ */
+function testBazarDateOrdering() {
+  var s = newSuite_();
+
+  // Stable ascending sort on date, preserving tie order.
+  function sortKeys(entries) {
+    var indexed = entries.map(function (e, i) { return { key: e, i: i }; });
+    indexed.sort(function (a, b) {
+      var at = a.key ? toDate_(a.key).getTime() : Number.MAX_SAFE_INTEGER;
+      var bt = b.key ? toDate_(b.key).getTime() : Number.MAX_SAFE_INTEGER;
+      if (at !== bt) return at - bt;
+      return a.i - b.i;
+    });
+    return indexed.map(function (x) { return x.key; });
+  }
+
+  eq_(s, 'sorts out-of-order dates',
+    sortKeys(['2026-11-10', '2026-11-01', '2026-11-05']).join(','),
+    '2026-11-01,2026-11-05,2026-11-10');
+
+  eq_(s, 'already sorted stays put',
+    sortKeys(['2026-11-01', '2026-11-02', '2026-11-03']).join(','),
+    '2026-11-01,2026-11-02,2026-11-03');
+
+  // Same-date rows must not be reordered (an invoice's lines stay together).
+  eq_(s, 'same-date rows keep entry order',
+    sortKeys(['2026-11-01', '2026-11-01', '2026-11-01']).join(','),
+    '2026-11-01,2026-11-01,2026-11-01');
+
+  eq_(s, 'mixed with duplicates stays stable',
+    sortKeys(['2026-11-05', '2026-11-01', '2026-11-05', '2026-11-01']).length, 4);
+
+  // A row with no date sorts last rather than silently jumping to the top.
+  eq_(s, 'missing date sorts last',
+    sortKeys(['2026-11-05', '', '2026-11-01'])[2], '');
+
+  // Month and year boundaries.
+  eq_(s, 'across a month boundary',
+    sortKeys(['2026-11-01', '2026-10-31']).join(','), '2026-10-31,2026-11-01');
+  eq_(s, 'across a year boundary',
+    sortKeys(['2027-01-01', '2026-12-31']).join(','), '2026-12-31,2027-01-01');
 
   return s;
 }

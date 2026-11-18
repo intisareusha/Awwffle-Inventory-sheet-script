@@ -159,6 +159,10 @@ function addBazarInvoice_(payload) {
   var rows = result.rows;
   appendRows_(SHEETS.BAZAR, rows);
 
+  // A backdated entry would otherwise sit at the bottom of the sheet, so the
+  // table is kept in date order after every write.
+  sortBazarByDate_();
+
   // Touch the item master's display-only latest rate. This is a convenience for
   // reorder decisions and must NEVER feed valuation (§6.2.1).
   result.rows.forEach(function (row) {
@@ -377,6 +381,58 @@ function updateLatestRate_(itemName, rate) {
 }
 
 // ---------------------------------------------------------------------------
+// Row ordering
+// ---------------------------------------------------------------------------
+
+/**
+ * Sorts the Bazar sheet by date, oldest first, and returns how many rows moved.
+ *
+ * Why this exists: a backdated purchase is appended to the bottom by the Sheets
+ * API, which leaves the table out of chronological order. Sorting keeps the sheet
+ * readable and keeps month/date-range reads sane.
+ *
+ * Ties keep their relative order (a stable sort on date only), so rows recorded
+ * in one invoice stay together and in the order they were entered.
+ *
+ * Row IDs are NOT touched: Record ID is the identity (§2.7), not the row number.
+ */
+function sortBazarByDate_() {
+  var sheet = getSheet_(SHEETS.BAZAR);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return 0;          // 0 or 1 data row cannot be out of order
+
+  var width = Math.max(sheet.getLastColumn(), 1);
+  var range = sheet.getRange(2, 1, lastRow - 1, width);
+  var values = range.getValues();
+
+  var dateCol = colIndex_(getHeaders_(sheet), 'Date');
+  if (dateCol < 0) return 0;
+
+  // Decorate with the original index so equal dates keep their order.
+  var indexed = values.map(function (row, i) {
+    return { row: row, i: i, key: toDate_(row[dateCol]) };
+  });
+
+  indexed.sort(function (a, b) {
+    var at = a.key ? a.key.getTime() : Number.MAX_SAFE_INTEGER;
+    var bt = b.key ? b.key.getTime() : Number.MAX_SAFE_INTEGER;
+    if (at !== bt) return at - bt;
+    return a.i - b.i;                 // stable tie-break
+  });
+
+  var moved = 0;
+  var sorted = indexed.map(function (x, i) {
+    if (x.i !== i) moved++;
+    return x.row;
+  });
+
+  // Only write when something actually changed: a needless write is slow and
+  // would rewrite every formatted cell for no reason.
+  if (moved > 0) range.setValues(sorted);
+  return moved;
+}
+
+// ---------------------------------------------------------------------------
 // Edit and delete — same idea as Batches, keyed by the stable Record ID
 // ---------------------------------------------------------------------------
 
@@ -515,6 +571,9 @@ function updateBazarLine_(payload) {
   row[15] = 'Edited via form';
 
   sheet.getRange(realRow, 1, 1, row.length).setValues([row]);
+
+  // Editing can change the date, which may take the row out of order.
+  sortBazarByDate_();
 
   // The item's display-only latest rate may have moved with this edit.
   if (row[3]) updateLatestRate_(row[3], row[7]);
