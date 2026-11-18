@@ -17,6 +17,44 @@ internally consistent (see below).
 
 ---
 
+## How each column is built
+
+```
+Opening Qty  = purchases on or before 10 Oct 2026
+             + stock that has no purchase at all (Waffle Box, Waffle Tray)
+Purchased Qty = purchases AFTER 10 Oct 2026
+Total Qty    = Opening Qty + Purchased Qty
+Remaining Qty = Total Qty − Total Used
+```
+
+**Opening stock is the 10 October setup purchase.** That date is the first Bazar
+entry, so everything bought on it is what you started with. Purchases from
+November onward are `Purchased Qty`. The two sets never overlap — that is what
+keeps `Opening + Purchased = Total Qty` true.
+
+The only genuinely pre-existing stock is **Waffle Box** and **Waffle Tray**: 1,200
+each that were on the shelf before the ledger began.
+
+### Changing the cut-off date
+
+It lives in **Settings → `opening_cutoff_date`** (currently `2026-10-10`). After
+changing it, run **Awwffle → Rebuild opening stock**, then **Refresh stock view**.
+
+### If you correct a Bazar row
+
+Opening stock is derived from Bazar, so correcting a purchase can leave it stale.
+For example, if you change Milk's 10 October purchase from 23 L to 25 L:
+
+1. Correct the row **through the Bazar form** (click it → Update), so `Amount` and
+   `Base Quantity` are recalculated for you.
+2. **Awwffle → Rebuild opening stock**
+3. **Awwffle → Refresh stock view**
+
+Re-running the whole migration will *not* fix it — migration deliberately skips
+rows it has already imported.
+
+---
+
 ## What each column means
 
 | Column | Meaning |

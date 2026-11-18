@@ -35,6 +35,19 @@
 // because the migration needs it too and must not depend on a later phase.
 
 /**
+ * The opening cut-off date, from Settings. Defaults to the first Bazar purchase.
+ *
+ * This single date decides what counts as opening stock versus a purchase, so it
+ * is read from one place. The default matters: if Settings has not been seeded,
+ * falling back to nothing would silently double every October purchase.
+ */
+function openingCutOff_() {
+  var settings = readSettings_();
+  var raw = settings.opening_cutoff_date || '2026-10-10';
+  return toDate_(raw) || toDate_('2026-10-10');
+}
+
+/**
  * Weighted-average cost for one item (§6.2.1).
  *
  * Opening stock is the first "purchase" at its snapshot rate, so the average is
@@ -73,12 +86,21 @@ function itemCosting_(itemName, opts) {
   });
 
   // --- Purchases ---
+  // Only purchases AFTER the opening cut-off count as "Purchased Qty", because
+  // purchases on or before it are already represented by the opening layer.
+  // Counting them here as well would double the stock: a 25 L October Milk buy
+  // would appear both as opening stock and as a purchase.
+  var cutOff = openingCutOff_();
+
   var purchaseQty = 0;
   var purchaseValue = 0;
   bazarRows.forEach(function (r) {
     if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
     var affects = String(r['Affects Stock']);
     if (affects !== 'true' && affects !== 'TRUE') return;
+
+    var d = toDate_(r['Date']);
+    if (cutOff && d && d <= cutOff) return;   // already inside the opening layer
 
     var q = toNumber_(r['Base Quantity']);
     var a = toNumber_(r['Amount']);
@@ -391,6 +413,199 @@ function verifyValuationIdentity_(asOf) {
 // ---------------------------------------------------------------------------
 // Writing the Stock view
 // ---------------------------------------------------------------------------
+
+/**
+ * Recomputes the OpeningStock sheet from the Bazar records currently in this
+ * spreadsheet — no access to the source workbook, so it works on live data.
+ *
+ * Definition (owner's decision): opening stock is every purchase on or before
+ * the cut-off date, plus stock that has no purchase behind it at all.
+ *
+ * This exists because the opening layer depends on Bazar, and if a Bazar row is
+ * corrected (e.g. Milk 23 L -> 25 L) the opening layer is stale until rebuilt.
+ * Re-running the whole migration cannot fix it: migration skips rows it has
+ * already imported.
+ *
+ * Safe to run repeatedly: it rewrites OpeningStock from scratch each time.
+ */
+function rebuildOpeningStock_() {
+  var settings = readSettings_();
+  var cutOff = toDate_(settings.opening_cutoff_date || '2026-10-10');
+  if (!cutOff) cutOff = toDate_('2026-10-10');
+
+  // --- Split purchases at the cut-off ---
+  var openingQty = {};
+  var purchasedQty = {};
+  var duplicateWarnings = [];
+
+  readRecords_(SHEETS.BAZAR).forEach(function (r) {
+    if (String(r['Expense Type']) !== EXPENSE_TYPE_INVENTORY) return;
+    var item = String(r['Item'] || '');
+    if (!item) return;
+    var base = toNumber_(r['Base Quantity']);
+    if (base === null) return;
+
+    var d = toDate_(r['Date']);
+    if (d && d <= cutOff) {
+      openingQty[item] = (openingQty[item] || 0) + base;
+    } else {
+      purchasedQty[item] = (purchasedQty[item] || 0) + base;
+    }
+  });
+
+  // --- Detect likely duplicate purchase lines ---
+  // Two rows for the same item, quantity and unit on the same day is almost
+  // always a re-entry rather than two identical purchases. It silently inflates
+  // stock, so it is reported rather than guessed at.
+  duplicateWarnings = findDuplicatePurchaseLines_();
+
+  // --- Preserve genuinely pre-existing stock ---
+  // An item with no purchase at all but a non-zero existing opening quantity was
+  // on the shelf before the ledger began (Waffle Box, Waffle Tray). Keep it.
+  var existingOpening = {};
+  readRecords_(SHEETS.OPENING_STOCK).forEach(function (r) {
+    var name = String(r['Item'] || '');
+    if (!name) return;
+    var q = toNumber_(r['Quantity']);
+    var note = String(r['Note'] || '');
+    if (q !== null && q > 0 && note.indexOf('Pre-existing') !== -1) {
+      existingOpening[name] = q;
+    }
+  });
+
+  // --- Rebuild the sheet ---
+  var sheet = getSheet_(SHEETS.OPENING_STOCK);
+  var headers = SCHEMA[SHEETS.OPENING_STOCK];
+  writeHeaders_(sheet, headers);
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  }
+
+  var itemRows = readRecords_(SHEETS.ITEM_MASTER).filter(function (r) {
+    return String(r['Active']) !== 'FALSE' && String(r['Item Name'] || '');
+  });
+
+  var rows = [];
+  var totalOpening = 0;
+  var totalValue = 0;
+
+  itemRows.forEach(function (ir) {
+    var name = String(ir['Item Name']);
+    var item = findItem_(name);
+    var rate = toNumber_(ir['Latest Purchase Rate']);
+    if (rate === null) rate = toNumber_(ir['Seed Rate']);
+
+    var qty = openingQty[name] || 0;
+    var note = 'Purchases on or before ' + dateKey_(cutOff) + ' (setup stock)';
+
+    if (qty === 0 && existingOpening[name]) {
+      qty = existingOpening[name];
+      note = 'Pre-existing stock: never purchased in the recorded window';
+    }
+
+    var value = qty * ratePerBaseUnit_(item, rate);
+
+    rows.push([
+      name,
+      cutOff,
+      round2_(qty),
+      rate,
+      round2_(value),
+      'Rebuilt from Bazar',
+      note
+    ]);
+
+    totalOpening += qty;
+    totalValue += value;
+  });
+
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  logEvent_('STOCK', 'Opening stock rebuilt',
+    rows.length + ' items, cut-off ' + dateKey_(cutOff));
+
+  return {
+    written: rows.length,
+    cutOff: dateKey_(cutOff),
+    totalOpeningQty: round2_(totalOpening),
+    totalOpeningValue: round2_(totalValue),
+    itemsWithOpening: rows.filter(function (r) { return Number(r[2]) > 0; }).length,
+    duplicates: duplicateWarnings
+  };
+}
+
+/**
+ * Finds suspicious purchase lines: the same item recorded more than once on the
+ * same day in the same unit.
+ *
+ * Why not require an identical quantity? Because the most common real cause is a
+ * correction that left the old row behind — Milk 23 L re-entered as 25 L, giving
+ * two rows where one was meant. Requiring identical quantities would miss exactly
+ * that case, which is the one that inflates stock silently.
+ *
+ * Deliberately reports rather than deletes: buying the same item twice in a day
+ * is legitimate (two shops, two trips). Only the owner knows which it was.
+ */
+function findDuplicatePurchaseLines_() {
+  var groups = {};
+  var duplicates = [];
+
+  readRecords_(SHEETS.BAZAR).forEach(function (r) {
+    if (String(r['Expense Type']) !== EXPENSE_TYPE_INVENTORY) return;
+
+    var item = String(r['Item'] || '');
+    if (!item) return;
+
+    var qty = toNumber_(r['Quantity']);
+    if (qty === null) return;
+
+    var unit = String(r['Unit'] || '').trim();
+    var key = [normaliseItemName_(item), dateKey_(r['Date']), unit].join('|');
+
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      recordId: String(r['Record ID'] || ''),
+      item: item,
+      date: dateKey_(r['Date']),
+      quantity: qty,
+      unit: unit,
+      rate: toNumber_(r['Rate']),
+      ref: String(r['Ref'] || '')
+    });
+  });
+
+  Object.keys(groups).forEach(function (key) {
+    var rows = groups[key];
+    if (rows.length < 2) return;
+
+    // Same ref means the owner deliberately recorded several lines on one bill.
+    // Same item twice on one invoice is unusual but not a re-entry artefact, so
+    // it is flagged only when the refs differ or are both blank.
+    var refs = {};
+    rows.forEach(function (x) { refs[x.ref] = true; });
+    var distinctRefs = Object.keys(refs).length;
+
+    var quantities = rows.map(function (x) { return x.quantity; });
+    var identical = quantities.every(function (q) { return q === quantities[0]; });
+
+    duplicates.push({
+      item: rows[0].item,
+      date: rows[0].date,
+      unit: rows[0].unit,
+      count: rows.length,
+      quantities: quantities,
+      identical: identical,
+      distinctRefs: distinctRefs,
+      records: rows.map(function (x) { return x.recordId; })
+    });
+  });
+
+  return duplicates;
+}
 
 /** Rebuilds the Stock sheet from source records. Never the source of truth. */
 function refreshStockSheet_(asOf) {

@@ -104,8 +104,8 @@ var SETTINGS_SCHEMA = [
   // Business identity
   { key: 'business_name',        type: 'text',    value: 'Awwffle',  editable: true },
   { key: 'currency',             type: 'text',    value: 'BDT',      editable: false },
-  { key: 'opening_cutoff_date',  type: 'date',    value: '2026-10-09', editable: false,
-    note: 'Stock holding before the Bazar ledger begins (README §6.3).' },
+  { key: 'opening_cutoff_date',  type: 'date',    value: '2026-10-10', editable: false,
+    note: 'First Bazar purchase date. Purchases on or before this are opening stock; later ones are Purchased Qty.' },
 
   // POS behaviour
   { key: 'pos_baseline',         type: 'number',  value: 10000, editable: true,

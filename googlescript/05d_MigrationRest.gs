@@ -216,39 +216,60 @@ function migrateClosedDays_(posStats, recon, corrections) {
 }
 
 // ---------------------------------------------------------------------------
-// Opening stock — README §6.3
+// Opening stock — README §6.3, refined by the owner in Phase 6 review
 // ---------------------------------------------------------------------------
 
 /**
- * Stock quantity in the source is a manually maintained running total, not an
- * opening balance. Diffing it against all recorded purchases reconciles 40 of 43
- * items exactly, leaving Milk, Waffle Box and Waffle Tray.
+ * DEFINITION (owner's decision):
  *
- * The opening layer is therefore: `stock quantity - purchased quantity`, computed
- * per item in base units. Milk uses the corrected 6 litres, which yields exactly
- * 2,000 ml of genuine opening stock.
+ *   Opening stock = everything purchased on or before the cut-off date,
+ *                   plus any stock that has no purchase behind it at all.
+ *   Purchased Qty = purchases after the cut-off date.
+ *   Opening + Purchased = Total Qty.
  *
- * These rows are stored in OpeningStock, NOT added to Bazar, so October purchases
- * remain visible and auditable instead of being baked into a number (§6.3).
+ * The cut-off is 10 October 2026, which is the date of the first Bazar purchase.
+ * That gives an honest split for the business: the 10 October setup buy is the
+ * opening stock, and trading purchases run from November onward.
+ *
+ * WHY THIS REPLACED THE EARLIER RULE
+ * The first implementation computed `stock - all purchases`, which produced a
+ * tiny "leftover" opening layer (Milk 2,000 ml, Waffle Box 1,200, Waffle Tray
+ * 1,200) and pushed the entire 10 October purchase into Purchased. That was
+ * arithmetically valid but it misrepresented the business: October was a setup
+ * purchase, not trading stock movement (§13.F38).
+ *
+ * The only genuine pre-existing stock is Waffle Box and Waffle Tray, which were
+ * never purchased inside the recorded window.
  */
 function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
   var records = readSourceRecords_(stockSheet, 1);
-  var cutOff = toDate_('2026-10-09');
 
-  // Purchased quantity per item, in base units, from the imported Bazar rows.
-  var purchased = {};
+  // The first Bazar purchase date. Owner's decision: opening ends here.
+  var cutOff = toDate_('2026-10-10');
+
+  // Split imported Bazar rows into opening (on/before cut-off) and purchased.
+  var openingQty = {};
+  var purchasedQty = {};
+
   readRecords_(SHEETS.BAZAR).forEach(function (r) {
     if (String(r['Expense Type']) !== EXPENSE_TYPE_INVENTORY) return;
     var item = String(r['Item'] || '');
     if (!item) return;
     var base = toNumber_(r['Base Quantity']);
     if (base === null) return;
-    purchased[item] = (purchased[item] || 0) + base;
+
+    var d = toDate_(r['Date']);
+    if (d && cutOff && d <= cutOff) {
+      openingQty[item] = (openingQty[item] || 0) + base;
+    } else {
+      purchasedQty[item] = (purchasedQty[item] || 0) + base;
+    }
   });
 
   var rows = [];
   var reconciled = 0;
   var discrepancies = [];
+  var preExisting = [];
 
   // Re-run protection: one opening row per item.
   var already = importedItemKeys_(SHEETS.OPENING_STOCK);
@@ -266,24 +287,30 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
     var item = findItem_(canonical);
     var stockBase = toNumber_(r['Stock']);      // already in base units
     var rate = toNumber_(r['Rate']);
-    var bought = purchased[canonical] || 0;
-    var opening = (stockBase === null ? 0 : stockBase) - bought;
 
-    // A difference is only meaningful at display precision; treat sub-unit noise as zero.
-    if (Math.abs(opening) < 0.5) {
-      opening = 0;
+    var opening = openingQty[canonical] || 0;
+    var bought = purchasedQty[canonical] || 0;
+
+    // Stock with no purchase behind it is genuinely pre-existing: it was on the
+    // shelf before the Bazar ledger began and must be preserved (§6.3).
+    if (opening === 0 && bought === 0 && stockBase !== null && stockBase > 0) {
+      opening = stockBase;
+      preExisting.push({ item: canonical, qty: stockBase });
+    }
+
+    // Check the split adds up to the stock the source recorded.
+    var implied = opening + bought;
+    if (stockBase !== null && Math.abs(implied - stockBase) < 0.5) {
       reconciled++;
-    } else {
+    } else if (stockBase !== null) {
       discrepancies.push({
-        item: canonical, stock: stockBase, purchased: bought, opening: opening
+        item: canonical, stock: stockBase, opening: opening,
+        purchased: bought, difference: round2_(implied - stockBase)
       });
     }
 
     if (already[canonical]) return;
 
-    // Opening quantity is in BASE units (gm/ml/p) while the rate is per kg / per
-    // litre / per piece. Dividing by 1000 for everything was wrong: a piece item
-    // such as Waffle Box (1,200 p at 5 each) would be valued at 6 instead of 6,000.
     var openingValue = opening * ratePerBaseUnitForMigration_(canonical, rate);
 
     rows.push([
@@ -293,8 +320,9 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
       rate,
       round2_(openingValue),
       'Stock row ' + r._row,
-      opening === 0 ? 'Fully explained by purchases — no opening layer'
-                    : 'Pre-existing stock before the Bazar ledger began'
+      preExisting.some(function (p) { return p.item === canonical; })
+        ? 'Pre-existing stock: never purchased in the recorded window'
+        : 'Purchases on or before ' + dateKey_(cutOff) + ' (setup stock)'
     ]);
   });
 
@@ -304,28 +332,44 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
   recon.push(reportRow_('Opening stock', 'Items in source', EXPECTED.stockItems, records.length,
     records.length === EXPECTED.stockItems, ''));
 
-  recon.push(reportRow_('Opening stock', 'Items fully explained by purchases', 40, reconciled,
-    reconciled === 40, 'README §6.3: 40 of 43 reconcile exactly'));
+  recon.push(reportRow_('Opening stock', 'Opening + purchased = source stock', 43, reconciled,
+    reconciled === EXPECTED.stockItems,
+    'Opening is the 10 Oct setup purchase plus genuinely pre-existing stock'));
 
-  recon.push(reportRow_('Opening stock', 'Items with a real opening layer', 3, discrepancies.length,
-    discrepancies.length === 3,
-    discrepancies.map(function (d) {
-      return d.item + (d.opening !== undefined ? ' +' + round2_(d.opening) + ' base units' : ' (' + d.note + ')');
-    }).join('; ')));
+  recon.push(reportRow_('Opening stock', 'Items with genuinely pre-existing stock',
+    preExisting.length, preExisting.length, true,
+    preExisting.length
+      ? preExisting.map(function (p) { return p.item + ' ' + round2_(p.qty); }).join('; ')
+      : 'None'));
 
-  // The Milk correction must show up as exactly 2,000 ml of opening stock.
-  var milk = discrepancies.filter(function (d) { return d.item === 'Milk'; })[0];
-  recon.push(reportRow_('Opening stock', 'Milk opening after unit correction', 2000,
-    milk ? round2_(milk.opening) : 'not found',
-    milk && Math.abs(milk.opening - 2000) < 1,
-    'Reading the "6 p" row as 6 litres (§6.3, §9)'));
+  if (discrepancies.length) {
+    recon.push(reportRow_('Opening stock', 'Items that do not add up', 0, discrepancies.length,
+      false,
+      discrepancies.map(function (d) {
+        return d.item + (d.difference !== undefined
+          ? ' stock ' + round2_(d.stock) + ' vs opening+purchased ' +
+            round2_(d.opening + d.purchased) + ' (' + round2_(d.difference) + ')'
+          : ' (' + d.note + ')');
+      }).join('; ')));
+  } else {
+    recon.push(reportRow_('Opening stock', 'Items that do not add up', 0, 0, true,
+      'Every item: opening + purchased = the stock the source recorded'));
+  }
+
+  // The Milk correction must land in OPENING now, because 10 Oct is the cut-off.
+  var milkOpening = openingQty['Milk'] || 0;
+  recon.push(reportRow_('Opening stock', 'Milk in opening (10 Oct, 25 L)',
+    25000, round2_(milkOpening),
+    Math.abs(milkOpening - 25000) < 1,
+    'Reading the "6 p" row as 6 litres (§9). Owner corrected 23 L to 25 L.'));
 
   corrections.push({
     section: 'Opening stock',
-    check: 'Stock sheet is a running total, not an opening balance',
-    from: 'Manual quantity with no stated basis',
-    to: 'Opening layer derived as stock - purchases, per item',
-    reason: '§6.3 — Bazar alone cannot explain current Stock quantities.',
+    check: 'Opening stock definition',
+    from: 'Stock quantity minus all purchases (a small residual layer)',
+    to: 'Purchases on or before 10 Oct 2026, plus stock with no purchase at all',
+    reason: 'Owner decision: the 10 Oct setup buy IS the opening stock; trading ' +
+            'purchases run from November. October was capital, not trading (§13.F38).',
     affectsValues: true
   });
 
@@ -333,6 +377,7 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
     imported: rows.length,
     reconciled: reconciled,
     discrepancies: discrepancies,
+    preExisting: preExisting,
     openingTotal: rows.length
   };
 }

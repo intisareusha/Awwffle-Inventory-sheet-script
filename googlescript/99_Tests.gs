@@ -34,7 +34,9 @@ function runAllTests() {
     testBatchFunctionsExist,
     testRatePerBaseUnit,
     testOpenDays,
-    testWeightedAverage
+    testWeightedAverage,
+    testOpeningCutOffSplit,
+    testCodeOwnedSettingsSync
   ];
 
   var passed = 0;
@@ -1116,6 +1118,113 @@ function testWeightedAverage() {
   var withOpening = cost(1200, 5, []);
   eq_(s, 'opening-only average', withOpening.avg, 5);
   eq_(s, 'opening-only value', withOpening.value, 6000);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Opening stock vs purchased split
+// ---------------------------------------------------------------------------
+
+/**
+ * Opening stock is purchases on or before the cut-off; Purchased Qty is purchases
+ * after it. Those two sets must never overlap, or the same purchase is counted
+ * twice and stock doubles — which is exactly what happened when a 25 L October
+ * Milk purchase appeared as both opening stock and a November-range purchase.
+ *
+ * This tests the classification rule itself, independent of any sheet.
+ */
+function testOpeningCutOffSplit() {
+  var s = newSuite_();
+
+  var cutOff = toDate_('2026-10-10');
+
+  function split(entries) {
+    var opening = 0, purchased = 0;
+    entries.forEach(function (e) {
+      var d = toDate_(e[0]);
+      if (d && cutOff && d <= cutOff) opening += e[1];
+      else purchased += e[1];
+    });
+    return { opening: opening, purchased: purchased, total: opening + purchased };
+  }
+
+  // The owner's Milk case: 25 L on 10 Oct, then 8.5 L + 6 L in November.
+  var milk = split([['2026-10-10', 25000], ['2026-11-10', 8500], ['2026-11-16', 6000]]);
+  eq_(s, 'Milk opening = 10 Oct only', milk.opening, 25000);
+  eq_(s, 'Milk purchased = November only', milk.purchased, 14500);
+  eq_(s, 'Milk total = 39500', milk.total, 39500);
+
+  // The cut-off day itself belongs to opening, not purchases.
+  eq_(s, 'cut-off day is opening', split([['2026-10-10', 100]]).opening, 100);
+  eq_(s, 'day after cut-off is purchased', split([['2026-10-11', 100]]).purchased, 100);
+
+  // A purchase on the cut-off must not land in both buckets.
+  var one = split([['2026-10-10', 5000]]);
+  eq_(s, 'no double count on cut-off', one.opening + one.purchased, 5000);
+
+  // Purchases before the cut-off (if any exist) are opening too.
+  eq_(s, 'earlier than cut-off is opening', split([['2026-10-01', 300]]).opening, 300);
+
+  // Nothing is lost or invented across a mixed set.
+  var mixed = split([
+    ['2026-10-10', 1000],
+    ['2026-10-20', 2000],
+    ['2026-11-01', 4000]
+  ]);
+  eq_(s, 'mixed total preserved', mixed.total, 7000);
+  eq_(s, 'mixed opening', mixed.opening, 1000);
+  eq_(s, 'mixed purchased', mixed.purchased, 6000);
+
+  // The cut-off default must be a real date, never empty — an empty cut-off would
+  // classify every purchase as "after", silently emptying the opening layer.
+  eq_(s, 'cut-off default is set', dateKey_(toDate_('2026-10-10')), '2026-10-10');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Code-owned settings must follow the code
+// ---------------------------------------------------------------------------
+
+/**
+ * A settings row marked `editable: false` is owned by the code, not the owner.
+ * Setup must bring it up to date, otherwise a corrected default never reaches an
+ * existing sheet.
+ *
+ * This was a real bug: `opening_cutoff_date` was changed from 2026-10-09 to
+ * 2026-10-10 in code, but setup skipped every existing setting, so the owner's
+ * sheet kept the old date. With the cut-off one day early, the 10 October setup
+ * purchase fell into "after the cut-off" and opening stock came out empty.
+ *
+ * Owner-editable settings must still be left alone.
+ */
+function testCodeOwnedSettingsSync() {
+  var s = newSuite_();
+
+  var locked = SETTINGS_SCHEMA.filter(function (d) { return d.editable === false; });
+  eq_(s, 'there are code-owned settings', locked.length > 0, true);
+
+  var cutoff = SETTINGS_SCHEMA.filter(function (d) { return d.key === 'opening_cutoff_date'; })[0];
+  eq_(s, 'opening_cutoff_date exists', !!cutoff, true);
+  eq_(s, 'opening_cutoff_date is code-owned', cutoff.editable, false);
+  eq_(s, 'opening_cutoff_date defaults to 2026-10-10', cutoff.value, '2026-10-10');
+
+  // Editable settings are the owner's and must not be code-owned.
+  var lowDays = SETTINGS_SCHEMA.filter(function (d) { return d.key === 'default_low_stock_days'; })[0];
+  eq_(s, 'default_low_stock_days exists', !!lowDays, true);
+  eq_(s, 'default_low_stock_days is owner-editable', lowDays.editable, true);
+
+  // The sync decision itself: a code-owned setting whose value differs must be
+  // queued for update; an editable one must never be.
+  function shouldSync(def, currentValue) {
+    if (!def) return false;
+    return def.editable === false && String(currentValue) !== String(def.value);
+  }
+
+  eq_(s, 'stale code-owned value is synced', shouldSync(cutoff, '2026-10-09'), true);
+  eq_(s, 'current code-owned value is not rewritten', shouldSync(cutoff, '2026-10-10'), false);
+  eq_(s, 'editable value is never synced', shouldSync(lowDays, '9'), false);
 
   return s;
 }

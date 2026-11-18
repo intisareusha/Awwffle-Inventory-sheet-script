@@ -205,7 +205,7 @@ SCHEMA[SHEETS.STOCK] = [
   'Population',
   'Opening Qty',        // in base unit
   'Purchased Qty',
-  'Total Available',
+  'Total Qty',          // opening + purchased
   'Batter Used',
   'Nutella Mix Used',
   'Cream Used',

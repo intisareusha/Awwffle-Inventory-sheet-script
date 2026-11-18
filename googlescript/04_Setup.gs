@@ -109,15 +109,36 @@ function ensureSettingsSheet_(created, skipped, seeded) {
   readRecords_(SHEETS.SETTINGS).forEach(function (r) { existing[r.Setting] = r; });
 
   var toAppend = [];
+  var toSync = [];
+
   SETTINGS_SCHEMA.forEach(function (def) {
-    if (existing.hasOwnProperty(def.key)) return;   // never overwrite
-    toAppend.push([def.key, def.value, def.type, def.editable, def.note || '']);
+    if (!existing.hasOwnProperty(def.key)) {
+      toAppend.push([def.key, def.value, def.type, def.editable, def.note || '']);
+      return;
+    }
+
+    // Settings marked `editable: false` are code-owned, not owner preferences.
+    // They must follow the current code, otherwise a changed default (such as a
+    // corrected cut-off date) never reaches an existing sheet and the owner is
+    // left with stale behaviour that looks like a bug.
+    //
+    // Editable settings are never touched — those are the owner's.
+    if (def.editable === false) {
+      var current = existing[def.key].Value;
+      if (String(current) !== String(def.value)) {
+        toSync.push({ key: def.key, from: current, to: def.value, type: def.type, note: def.note || '' });
+      }
+    }
   });
 
   if (toAppend.length) {
     var startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow, 1, toAppend.length, SCHEMA[SHEETS.SETTINGS].length).setValues(toAppend);
     seeded.push(toAppend.length + ' settings');
+  }
+
+  if (toSync.length) {
+    syncSettings_(sheet, toSync, seeded);
   }
 
   // Waffles per batch live as settings so the owner owns them (§13.D30).
@@ -142,6 +163,38 @@ function ensureSettingsSheet_(created, skipped, seeded) {
   sheet.setColumnWidth(5, 420);
 
   return readSettings_();
+}
+
+/**
+ * Updates code-owned settings in place and logs what changed.
+ *
+ * The owner sees this in _Log, and the toast reports it, so a silently changed
+ * value is never a surprise.
+ */
+function syncSettings_(sheet, changes, seeded) {
+  var records = readRecords_(SHEETS.SETTINGS);
+
+  changes.forEach(function (c) {
+    for (var i = 0; i < records.length; i++) {
+      if (String(records[i].Setting) !== c.key) continue;
+
+      // readRecords skips blank rows, so resolve the real sheet row instead of
+      // assuming i + 2.
+      var realRow = -1;
+      var lastRow = sheet.getLastRow();
+      var keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (var k = 0; k < keys.length; k++) {
+        if (String(keys[k][0]).trim() === c.key) { realRow = k + 2; break; }
+      }
+      if (realRow < 2) break;
+
+      sheet.getRange(realRow, 2).setValue(c.to);
+      logEvent_('SETTINGS', 'Code-owned setting updated',
+        c.key + ': ' + c.from + ' -> ' + c.to);
+      seeded.push(c.key + ' updated (' + c.from + ' -> ' + c.to + ')');
+      break;
+    }
+  });
 }
 
 /** Reads Settings into a plain object { key: value }. */

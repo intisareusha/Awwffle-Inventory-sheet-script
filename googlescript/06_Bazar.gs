@@ -623,13 +623,23 @@ function deleteBazarLine_(recordId) {
 // Queries used by the form and by later phases
 // ---------------------------------------------------------------------------
 
-/** Purchased quantity per item, in base units (used by the Stock view). */
+/**
+ * Purchased quantity per item, in base units, for purchases AFTER the opening
+ * cut-off. Earlier purchases are already in the opening layer, so including them
+ * here would double-count them.
+ */
 function purchasedBaseQuantity_() {
+  var cutOff = openingCutOff_();
   var out = {};
+
   readRecords_(SHEETS.BAZAR).forEach(function (r) {
     if (String(r['Affects Stock']) !== 'true' && String(r['Affects Stock']) !== 'TRUE') return;
     var item = String(r['Item'] || '');
     if (!item) return;
+
+    var d = toDate_(r['Date']);
+    if (cutOff && d && d <= cutOff) return;
+
     var base = toNumber_(r['Base Quantity']);
     if (base === null) return;
     out[item] = (out[item] || 0) + base;
