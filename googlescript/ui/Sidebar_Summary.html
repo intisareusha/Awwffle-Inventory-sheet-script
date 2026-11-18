@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input, select { width: 100%; padding: 6px 7px; border: 1px solid #dadce0;
+      border-radius: 4px; font-size: 13px; font-family: inherit; background: #fff; }
+    input:focus, select:focus { outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent; }
+    .row { margin-bottom: 9px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid #e0e0e0; }
+    .tab {
+      padding: 7px 12px; cursor: pointer; font-size: 13px; border: none;
+      background: none; color: #5f6368; border-bottom: 2px solid transparent;
+      font-family: inherit;
+    }
+    .tab:hover { background: #f8f9fa; }
+    .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 500; }
+
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+
+    button { padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit; }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button.chip { padding: 4px 9px; font-size: 11px; border-radius: 12px; }
+    button.chip:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
+
+    /* Summary tiles */
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
+    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
+    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+    .tile.wide { grid-column: 1 / -1; }
+    .tile.money .v { color: #188038; }
+
+    /* Tables */
+    .tbl-wrap { max-height: 260px; overflow: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { position: sticky; top: 0; background: #f1f3f4; text-align: left;
+         padding: 5px 6px; font-weight: 600; font-size: 11px; color: #5f6368; }
+    td { padding: 5px 6px; border-top: 1px solid #f1f3f4; }
+    td.n, th.n { text-align: right; }
+    tr:hover td { background: #f8f9fa; }
+    .neg { color: #a50e0e; font-weight: 600; }
+
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
+           font-size: 12px; white-space: pre-wrap; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .muted { color: #5f6368; font-size: 11px; }
+    .hidden { display: none !important; }
+    .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
+      text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
+  </style>
+</head>
+<body>
+  <h2>Summary</h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="tabs">
+    <button type="button" class="tab active" data-tab="batches">Batches</button>
+    <button type="button" class="tab" data-tab="bazar">Bazar</button>
+    <button type="button" class="tab" data-tab="stock">Stock</button>
+  </div>
+
+  <!-- ================= BATCHES ================= -->
+  <div id="pane-batches">
+    <div class="chips" id="batchPresets"></div>
+    <div class="grid2 row">
+      <div><label>From</label><input type="date" id="batchFrom"></div>
+      <div><label>To</label><input type="date" id="batchTo"></div>
+    </div>
+    <button type="button" class="primary" id="batchRun" style="width:100%">Show batches</button>
+    <div id="batchOut" style="margin-top:10px"></div>
+  </div>
+
+  <!-- ================= BAZAR ================= -->
+  <div id="pane-bazar" class="hidden">
+    <div class="chips" id="bazarPresets"></div>
+    <div class="grid2 row">
+      <div><label>From</label><input type="date" id="bazarFrom"></div>
+      <div><label>To</label><input type="date" id="bazarTo"></div>
+    </div>
+    <button type="button" class="primary" id="bazarRun" style="width:100%">Show spending</button>
+    <div id="bazarOut" style="margin-top:10px"></div>
+  </div>
+
+  <!-- ================= STOCK ================= -->
+  <div id="pane-stock" class="hidden">
+    <div class="row">
+      <label>Stock position as of</label>
+      <input type="date" id="stockAsOf">
+      <div class="muted">Stock is a position on a date, not a range.</div>
+    </div>
+    <div class="grid2 row">
+      <div><label>Group</label><select id="stockGroup"></select></div>
+      <div><label>Kind</label><select id="stockPopulation"></select></div>
+    </div>
+    <div class="row">
+      <label>Item</label><select id="stockItem"></select>
+    </div>
+    <div class="grid2 row">
+      <div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:12px">
+          <input type="checkbox" id="stockLowOnly" style="width:auto"> Low stock only
+        </label>
+      </div>
+      <div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:12px">
+          <input type="checkbox" id="stockNegOnly" style="width:auto"> Negative only
+        </label>
+      </div>
+    </div>
+    <button type="button" class="primary" id="stockRun" style="width:100%">Show stock</button>
+    <div id="stockOut" style="margin-top:10px"></div>
+  </div>
+
+<script>
+  var OPTIONS = null;
+  var currentTab = 'batches';
+
+  function $(id) { return document.getElementById(id); }
+  function money(n) {
+    if (n === '' || n === null || n === undefined) return '—';
+    return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function num(n) {
+    if (n === '' || n === null || n === undefined) return '—';
+    var v = Number(n);
+    return Math.round(v * 100) / 100;
+  }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function showMsg(text, kind) {
+    var el = $('msg');
+    el.className = 'msg ' + (kind || 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+  function hideMsg() { $('msg').style.display = 'none'; }
+
+  // ---- Bootstrap ----
+  try {
+    ['batch', 'bazar', 'stock'].forEach(function (t) {
+      $(t + 'Run').addEventListener('click', function () { runTab(t); });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (btn) {
+      btn.addEventListener('click', function () {
+        currentTab = btn.getAttribute('data-tab');
+        Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+          b.className = 'tab' + (b === btn ? ' active' : '');
+        });
+        ['batches', 'bazar', 'stock'].forEach(function (p) {
+          $('pane-' + p).className = (p === currentTab) ? '' : 'hidden';
+        });
+      });
+    });
+
+    $('stockLowOnly').addEventListener('change', function () { runTab('stock'); });
+    $('stockNegOnly').addEventListener('change', function () { runTab('stock'); });
+    $('stockGroup').addEventListener('change', function () { populateItems(); runTab('stock'); });
+    $('stockPopulation').addEventListener('change', function () { runTab('stock'); });
+    $('stockItem').addEventListener('change', function () { runTab('stock'); });
+    $('stockAsOf').addEventListener('change', function () { runTab('stock'); });
+
+    google.script.run
+      .withSuccessHandler(function (opts) {
+        OPTIONS = opts;
+        initOptions();
+      })
+      .withFailureHandler(function (err) {
+        showMsg('Could not load summary options: ' +
+          (err && err.message ? err.message : err), 'error');
+      })
+      .getSummaryOptions();
+  } catch (e) {
+    showMsg('Summary failed to start: ' + e.message, 'error');
+  }
+
+  function initOptions() {
+    // Preset chips
+    var presets = OPTIONS.presets || [];
+    [['batchPresets', 'batch'], ['bazarPresets', 'bazar']].forEach(function (pair) {
+      var box = $(pair[0]);
+      box.innerHTML = '';
+      presets.forEach(function (p) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip';
+        b.textContent = p.label;
+        b.addEventListener('click', function () { applyPreset(pair[1], p.key); });
+        box.appendChild(b);
+      });
+    });
+
+    // Default range: the whole data span.
+    $('batchFrom').value = OPTIONS.dataStart || OPTIONS.today;
+    $('batchTo').value = OPTIONS.dataEnd || OPTIONS.today;
+    $('bazarFrom').value = OPTIONS.dataStart || OPTIONS.today;
+    $('bazarTo').value = OPTIONS.dataEnd || OPTIONS.today;
+    $('stockAsOf').value = OPTIONS.today;
+
+    // Group and population selects
+    var g = $('stockGroup');
+    var allG = document.createElement('option');
+    allG.value = ''; allG.textContent = '(all groups)';
+    g.appendChild(allG);
+    (OPTIONS.groups || []).forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      g.appendChild(o);
+    });
+
+    var p = $('stockPopulation');
+    var allP = document.createElement('option');
+    allP.value = ''; allP.textContent = '(all kinds)';
+    p.appendChild(allP);
+    (OPTIONS.populations || []).forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      p.appendChild(o);
+    });
+
+    populateItems();
+    runTab('batches');
+  }
+
+  function populateItems() {
+    var sel = $('stockItem');
+    var group = $('stockGroup').value;
+    sel.innerHTML = '';
+    var all = document.createElement('option');
+    all.value = ''; all.textContent = '(all items)';
+    sel.appendChild(all);
+
+    (OPTIONS.items || []).forEach(function (it) {
+      if (group && it.group !== group) return;
+      var o = document.createElement('option');
+      o.value = it.name; o.textContent = it.name;
+      sel.appendChild(o);
+    });
+  }
+
+  function applyPreset(which, key) {
+    if (key === 'all') {
+      $(which + 'From').value = OPTIONS.dataStart || OPTIONS.today;
+      $(which + 'To').value = OPTIONS.dataEnd || OPTIONS.today;
+    } else {
+      google.script.run
+        .withSuccessHandler(function (r) {
+          if (!r) return;
+          $(which + 'From').value = r.start;
+          $(which + 'To').value = r.end;
+          runTab(which);
+        })
+        .withFailureHandler(function (err) {
+          // Silent failure here would look like the chip did nothing.
+          showMsg('Could not work out that date range: ' +
+            (err && err.message ? err.message : err), 'error');
+        })
+        .resolveSummaryPreset(key, OPTIONS.today);
+      return;
+    }
+    runTab(which);
+  }
+
+  function runTab(which) {
+    hideMsg();
+    if (which === 'batch') {
+      $('batchOut').innerHTML = '<div class="muted">Loading…</div>';
+      google.script.run
+        .withSuccessHandler(renderBatches)
+        .withFailureHandler(fail('batches'))
+        .summaryBatches($('batchFrom').value, $('batchTo').value);
+    } else if (which === 'bazar') {
+      $('bazarOut').innerHTML = '<div class="muted">Loading…</div>';
+      google.script.run
+        .withSuccessHandler(renderBazar)
+        .withFailureHandler(fail('bazar'))
+        .summaryBazar($('bazarFrom').value, $('bazarTo').value);
+    } else {
+      $('stockOut').innerHTML = '<div class="muted">Loading…</div>';
+      google.script.run
+        .withSuccessHandler(renderStock)
+        .withFailureHandler(fail('stock'))
+        .summaryStock($('stockAsOf').value, {
+          group: $('stockGroup').value,
+          population: $('stockPopulation').value,
+          item: $('stockItem').value,
+          lowStockOnly: $('stockLowOnly').checked,
+          negativeOnly: $('stockNegOnly').checked
+        });
+    }
+  }
+
+  function fail(which) {
+    return function (err) {
+      $(which + 'Out').innerHTML = '';
+      showMsg('Could not load ' + which + ': ' +
+        (err && err.message ? err.message : err), 'error');
+    };
+  }
+
+  // ---------- Batches ----------
+  function renderBatches(d) {
+    if (!d.recordCount) {
+      $('batchOut').innerHTML = '<div class="muted">No batches recorded in this range.</div>';
+      return;
+    }
+
+    var tiles = '<div class="tiles">' +
+      tile('Batches made', num(d.grandTotal)) +
+      tile('Records', d.recordCount) +
+      tile('Open days', d.openDays) +
+      tile('Calendar days', d.calendarDays) +
+      tile('Avg per open day', num(d.avgPerOpenDay)) +
+      tile('Closed days', d.closedDays) +
+      '</div>';
+
+    var prepRows = '';
+    var order = ['Batter', 'Nutella Mix', 'Cream', 'White Mix', 'Cheese'];
+    order.forEach(function (p) {
+      prepRows += '<tr><td>' + esc(p) + '</td><td class="n">' +
+        num(d.totals[p]) + '</td></tr>';
+    });
+
+    var preps = '<div class="section-title">By preparation</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Preparation</th>' +
+      '<th class="n">Batches</th></tr></thead><tbody>' + prepRows + '</tbody></table></div>';
+
+    var dayRows = '';
+    d.perDay.slice(0, 60).forEach(function (row) {
+      var cells = '';
+      order.forEach(function (p) {
+        var v = row.values[p];
+        cells += '<td class="n">' + (v ? num(v) : '') + '</td>';
+      });
+      dayRows += '<tr><td>' + esc(row.date) + '</td><td>' + esc(row.weekday) + '</td>' +
+        cells + '<td class="n"><b>' + num(row.total) + '</b></td></tr>';
+    });
+
+    var head = '<tr><th>Date</th><th>Day</th>';
+    order.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
+    head += '<th class="n">Total</th></tr>';
+
+    var perDay = '<div class="section-title">Per day' +
+      (d.perDay.length > 60 ? ' (newest 60)' : '') + '</div>' +
+      '<div class="tbl-wrap"><table><thead>' + head + '</thead><tbody>' +
+      dayRows + '</tbody></table></div>';
+
+    $('batchOut').innerHTML = tiles + preps + perDay;
+  }
+
+  // ---------- Bazar ----------
+  function renderBazar(d) {
+    if (!d.count) {
+      $('bazarOut').innerHTML = '<div class="muted">No purchases recorded in this range.</div>';
+      return;
+    }
+
+    var tiles = '<div class="tiles">' +
+      '<div class="tile money wide"><div class="k">Total spent (BDT)</div>' +
+        '<div class="v">' + money(d.total) + '</div></div>' +
+      tile('Lines', d.count) +
+      tile('Open days', d.openDays) +
+      tile('Avg per open day', money(d.avgPerOpenDay)) +
+      tile('Invoices', d.invoices.length) +
+      '</div>';
+
+    var typeRows = '';
+    Object.keys(d.byType).sort().forEach(function (t) {
+      typeRows += '<tr><td>' + esc(t) + '</td><td class="n">' +
+        money(d.byType[t]) + '</td></tr>';
+    });
+    var byType = '<div class="section-title">By expense type</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Type</th>' +
+      '<th class="n">Amount</th></tr></thead><tbody>' + typeRows + '</tbody></table></div>';
+
+    var itemRows = '';
+    d.items.forEach(function (x) {
+      itemRows += '<tr><td>' + esc(x.item) + '</td><td>' + esc(x.quantityText) +
+        '</td><td class="n">' + money(x.amount) + '</td></tr>';
+    });
+    var byItem = '<div class="section-title">By item</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Quantity</th>' +
+      '<th class="n">Amount</th></tr></thead><tbody>' + itemRows + '</tbody></table></div>';
+
+    var invRows = '';
+    d.invoices.slice(0, 40).forEach(function (x) {
+      invRows += '<tr><td>' + esc(x.ref) + '</td><td>' + esc(x.date) + '</td>' +
+        '<td class="n">' + x.lines + '</td><td class="n">' + money(x.total) + '</td></tr>';
+    });
+    var byInvoice = '<div class="section-title">By invoice</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Ref</th><th>Date</th>' +
+      '<th class="n">Lines</th><th class="n">Amount</th></tr></thead><tbody>' +
+      invRows + '</tbody></table></div>';
+
+    $('bazarOut').innerHTML = tiles + byType + byItem + byInvoice;
+  }
+
+  // ---------- Stock ----------
+  function renderStock(d) {
+    if (!d.rowCount) {
+      $('stockOut').innerHTML = '<div class="muted">No items match these filters.</div>';
+      return;
+    }
+
+    var tiles = '<div class="tiles">' +
+      '<div class="tile money wide"><div class="k">Total cost (used + remaining)</div>' +
+        '<div class="v">' + money(d.totals.totalCost) + '</div></div>' +
+      tile('Used cost', money(d.totals.usedCost)) +
+      tile('Remaining value', money(d.totals.remainingValue)) +
+      tile('Items shown', d.rowCount + ' of ' + d.totalItemCount) +
+      tile('Low stock', d.lowCount) +
+      '</div>';
+
+    if (d.negativeCount) {
+      tiles += '<div class="msg error" style="display:block">' +
+        d.negativeCount + ' item(s) have negative stock — almost always a missing purchase.</div>';
+    }
+
+    // Quantities are grouped by unit: grams and pieces cannot be summed together.
+    var qtyLine = d.quantityByUnit.map(function (u) {
+      return num(u.remaining) + ' ' + esc(u.unit);
+    }).join(' · ');
+    tiles += '<div class="muted" style="margin-bottom:10px">Remaining: ' + qtyLine + '</div>';
+
+    var rows = '';
+    d.rows.forEach(function (r) {
+      var neg = r.remainingQty < 0;
+      rows += '<tr>' +
+        '<td' + (neg ? ' class="neg"' : '') + '>' + esc(r.item) + '</td>' +
+        '<td class="n">' + num(r.totalQty) + '</td>' +
+        '<td class="n">' + num(r.avgRate) + '</td>' +
+        '<td class="n">' + num(r.remainingQty) + '</td>' +
+        '<td class="n">' + money(r.remainingValue) + '</td>' +
+        '<td class="n">' + (r.estDays === '' ? '—' : r.estDays) + '</td>' +
+        '<td>' + esc(r.flags) + '</td>' +
+        '</tr>';
+    });
+
+    var table = '<div class="section-title">Items (' + esc(d.asOf) + ')</div>' +
+      '<div class="tbl-wrap"><table><thead><tr>' +
+      '<th>Item</th><th class="n">Qty</th><th class="n">Avg rate</th>' +
+      '<th class="n">Remaining</th><th class="n">Value</th>' +
+      '<th class="n">Est days</th><th>Flags</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+    $('stockOut').innerHTML = tiles + table;
+  }
+
+  function tile(k, v) {
+    return '<div class="tile"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + '</div></div>';
+  }
+</script>
+</body>
+</html>

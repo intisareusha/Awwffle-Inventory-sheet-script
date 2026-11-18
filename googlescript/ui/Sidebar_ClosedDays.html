@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input { width: 100%; padding: 6px 7px; border: 1px solid #dadce0;
+      border-radius: 4px; font-size: 13px; font-family: inherit; }
+    input:focus { outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent; }
+    .row { margin-bottom: 9px; }
+    button { padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit; }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button.remove { color: #c5221f; border-color: #f5c6c2; padding: 3px 8px; font-size: 11px; }
+    button.remove:hover { background: #fce8e6; }
+    button:disabled { opacity: .5; cursor: default; }
+
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
+           font-size: 12px; white-space: pre-wrap; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
+
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
+    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
+    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+
+    .day-row {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 8px; padding: 6px 4px; border-bottom: 1px solid #f1f3f4; font-size: 12px;
+    }
+    .day-row:last-child { border-bottom: none; }
+    .day-row .d { font-weight: 500; white-space: nowrap; }
+    .day-row .r { color: #5f6368; flex: 1; font-size: 11px; }
+    .list { max-height: 220px; overflow-y: auto; }
+    .muted { color: #5f6368; font-size: 11px; }
+    .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
+      text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
+    .alert-line { background: #fef7e0; border: 1px solid #feefc3; color: #b06000;
+      padding: 7px 9px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Closed days</h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div id="tiles" class="tiles"></div>
+
+  <fieldset>
+    <legend>Mark a day closed</legend>
+    <div class="row">
+      <label for="newDate">Date</label>
+      <input type="date" id="newDate">
+    </div>
+    <div class="row">
+      <label for="newReason">Reason (optional)</label>
+      <input type="text" id="newReason" placeholder="e.g. holiday, staff sick, eid">
+    </div>
+    <button type="button" id="addBtn" class="primary" style="width:100%">Mark closed</button>
+  </fieldset>
+
+  <div id="missed"></div>
+
+  <div class="section-title">Closed days</div>
+  <div id="list" class="list"></div>
+
+  <div class="muted" style="margin-top:10px">
+    The day off has moved before (21 and 28 Oct were traded; 22 Oct was closed).
+    It is always a dated record here, never a weekday rule.
+  </div>
+
+<script>
+  var PANEL = null;
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function showMsg(text, kind) {
+    var el = $('msg');
+    el.className = 'msg ' + (kind || 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+  function hideMsg() { $('msg').style.display = 'none'; }
+
+  try {
+    $('addBtn').addEventListener('click', addDay);
+
+    google.script.run
+      .withSuccessHandler(function (panel) {
+        PANEL = panel;
+        render();
+      })
+      .withFailureHandler(function (err) {
+        showMsg('Could not load closed days: ' +
+          (err && err.message ? err.message : err), 'error');
+      })
+      .getClosedDaysPanel();
+  } catch (e) {
+    showMsg('Form failed to start: ' + e.message, 'error');
+  }
+
+  function render() {
+    // Default the date field to today.
+    if (!$('newDate').value) $('newDate').value = PANEL.today;
+
+    renderTiles();
+    renderMissed();
+    renderList();
+  }
+
+  function renderTiles() {
+    var r = PANEL.posOpenDays;
+    var html = '';
+
+    if (r) {
+      html += tile('Calendar days', r.calendarDays) +
+              tile('Closed days', r.closedDays) +
+              tile('Open days', r.openDays) +
+              tile('POS range', r.start + ' → ' + r.end);
+    } else {
+      html += '<div class="tile" style="grid-column:1/-1">' +
+        '<div class="k">No sales data yet</div>' +
+        '<div class="muted">Open days appear once snapshots exist.</div></div>';
+    }
+
+    $('tiles').innerHTML = html;
+  }
+
+  function renderMissed() {
+    var missed = PANEL.missedEntries || [];
+    if (!missed.length) {
+      $('missed').innerHTML = '';
+      return;
+    }
+
+    var lines = missed.map(function (m) {
+      return m.date + ' (' + m.weekday + ')';
+    }).join(', ');
+
+    $('missed').innerHTML =
+      '<div class="alert-line">' +
+      '<b>' + missed.length + ' open day(s) have no sales snapshot:</b><br>' +
+      esc(lines) +
+      '<br><br>If the shop was shut, mark them closed. Otherwise a snapshot is ' +
+      'missing and every per-day average is affected.' +
+      '</div>';
+  }
+
+  function renderList() {
+    var list = PANEL.closedDays || [];
+    var el = $('list');
+
+    if (!list.length) {
+      el.innerHTML = '<div class="muted">No closed days recorded yet.</div>';
+      return;
+    }
+
+    el.innerHTML = list.map(function (d) {
+      return '<div class="day-row">' +
+        '<span class="d">' + esc(d.date) + ' ' + esc(d.weekday) + '</span>' +
+        '<span class="r">' + esc(d.reason) + '</span>' +
+        '<button type="button" class="remove" data-date="' + esc(d.date) + '">Remove</button>' +
+        '</div>';
+    }).join('');
+
+    Array.prototype.forEach.call(el.querySelectorAll('.remove'), function (btn) {
+      btn.addEventListener('click', function () {
+        removeDay(btn.getAttribute('data-date'));
+      });
+    });
+  }
+
+  function tile(k, v) {
+    return '<div class="tile"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + '</div></div>';
+  }
+
+  function addDay() {
+    hideMsg();
+    var date = $('newDate').value;
+    if (!date) { showMsg('Pick a date first.', 'error'); return; }
+
+    $('addBtn').disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('addBtn').disabled = false;
+        if (!res.ok) { showMsg(res.errors.join('\n'), 'error'); return; }
+        PANEL = res.panel;
+        $('newReason').value = '';
+        render();
+        showMsg(res.message, 'ok');
+      })
+      .withFailureHandler(function (err) {
+        $('addBtn').disabled = false;
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .addClosedDay({ date: date, reason: $('newReason').value });
+  }
+
+  function removeDay(date) {
+    hideMsg();
+    if (!confirm('Reopen ' + date + '?\n\nIt will count as an open day again, ' +
+        'which changes every per-day average.')) return;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res.ok) { showMsg(res.errors.join('\n'), 'error'); return; }
+        PANEL = res.panel;
+        render();
+        showMsg(res.message, 'ok');
+      })
+      .withFailureHandler(function (err) {
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .removeClosedDay(date);
+  }
+</script>
+</body>
+</html>

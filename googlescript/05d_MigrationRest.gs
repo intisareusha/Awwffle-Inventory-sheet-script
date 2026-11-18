@@ -144,14 +144,23 @@ function readSummaryBlock_(sheet) {
 
 /**
  * The source has no closed-day record at all (§17.5.11). What it does have is a
- * span of snapshot dates with holes. Those holes are the best available evidence.
+ * span of snapshot dates with holes, and those holes are the closure record.
  *
- * Three dates are missing: 22 Oct (Thu), 4 Nov (Wed), 11 Nov (Wed).
- * Wednesday is the stated closed day, but 22 October is a Thursday — so this is
- * exactly the ambiguity §13.A7 warns about: closed vs missed.
+ * OWNER'S ACCOUNT OF THE FIRST WEEKS (authoritative):
+ *   - 21 Oct (Wed) was OPEN — normally closed, but traded that week.
+ *   - 22 Oct (Thu) was CLOSED — the day off was moved to Thursday.
+ *   - 28 Oct (Wed) was OPEN — no weekly closure that week either.
+ *   - 4 Nov and 11 Nov (Wed) were CLOSED.
  *
- * We record the two Wednesdays as `Closed` and the Thursday as `Unconfirmed`, so
- * a missed entry is never silently treated as a closed day.
+ * So the three closed days are 22 Oct, 4 Nov, 11 Nov — exactly the three dates
+ * with no snapshot, and exactly 31 calendar days − 3 = 28 open days.
+ *
+ * The lesson this encodes: the closed day moved within three weeks, so it can
+ * never be derived from a weekday. Every closure here is a dated record.
+ *
+ * An earlier version labelled 22 Oct "Unconfirmed — may be a missed entry"
+ * because it fell on a Thursday. That was wrong, and "unconfirmed" would invite
+ * the owner to later mistake a real closure for a data error.
  */
 function migrateClosedDays_(posStats, recon, corrections) {
   var spanStart = new Date(2026, 9, 17);
@@ -163,56 +172,60 @@ function migrateClosedDays_(posStats, recon, corrections) {
   // Re-run protection: one row per date.
   var existingDates = importedDateKeys_(SHEETS.CLOSED_DAYS, 'Date');
 
+  // Reasons the owner confirmed. A closure is a fact, so it gets a real reason
+  // rather than a weekday label.
+  var reasons = {
+    '2026-10-22': 'Closed — day off moved from Wednesday to Thursday',
+    '2026-11-04': 'Closed — weekly day off',
+    '2026-11-11': 'Closed — weekly day off'
+  };
+
   var rows = [];
   var closed = [];
-  var unconfirmed = [];
 
   dateRange_(spanStart, spanEnd).forEach(function (d) {
-    if (have[dateKey_(d)]) return;
-    var weekday = d.getDay();               // 3 = Wednesday
-    var isWednesday = weekday === 3;
+    var key = dateKey_(d);
+    if (have[key]) return;                       // a snapshot exists: we traded
 
-    if (isWednesday) {
-      closed.push(dateKey_(d));
-      if (!existingDates[dateKey_(d)]) rows.push([d, 'Closed (Wednesday)', new Date()]);
-    } else {
-      unconfirmed.push(dateKey_(d) + ' (' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekday] + ')');
-      // Recorded, but labelled so it is never assumed to be a closure (§13.A7).
-      if (!existingDates[dateKey_(d)]) {
-        rows.push([d, 'Unconfirmed — no snapshot; may be a missed entry', new Date()]);
-      }
+    closed.push(key);
+    if (!existingDates[key]) {
+      rows.push([d, reasons[key] || 'Closed — no snapshot recorded', new Date()]);
     }
   });
 
   if (rows.length) appendRows_(SHEETS.CLOSED_DAYS, rows);
 
-  var closedOrUnconfirmed = closed.length + unconfirmed.length;
-  var openDays = daysBetweenInclusive_(spanStart, spanEnd) - closedOrUnconfirmed;
+  var openDays = daysBetweenInclusive_(spanStart, spanEnd) - closed.length;
 
-  recon.push(reportRow_('Closed days', 'Dates without a snapshot', 3, closedOrUnconfirmed,
-    closedOrUnconfirmed === 3, closed.concat(unconfirmed).join(', ')));
+  recon.push(reportRow_('Closed days', 'Dates without a snapshot', 3, closed.length,
+    closed.length === 3, closed.join(', ')));
 
-  recon.push(reportRow_('Closed days', 'Recorded as closed (Wednesday)', 2, closed.length,
-    closed.length === 2, closed.join(', ')));
+  recon.push(reportRow_('Closed days', 'Open days in POS span', EXPECTED.openDays, openDays,
+    openDays === EXPECTED.openDays,
+    '31 calendar days - ' + closed.length + ' closed = ' + openDays +
+    '. Matches the 28 recorded snapshots.'));
 
-  recon.push(reportRow_('Closed days', 'Unconfirmed days', 1, unconfirmed.length, true,
-    unconfirmed.length ? unconfirmed.join(', ') +
-      ' — a Thursday. Recorded as unconfirmed, not as closed, because a missed ' +
-      'entry must not be mistaken for a closure (§13.A7).' : ''));
-
-  recon.push(reportRow_('Closed days', 'Open days in span', EXPECTED.openDays, openDays,
-    openDays === EXPECTED.openDays, '31 calendar days - 3 without a snapshot'));
+  corrections.push({
+    section: 'Closed days',
+    check: '22 Oct recorded as a Thursday closure, not a missed entry',
+    from: 'Thursday with no snapshot, labelled unconfirmed',
+    to: 'Closed — day off moved from Wednesday to Thursday',
+    reason: 'Owner: the first weeks did not follow a fixed weekday (21 and 28 Oct ' +
+            'were open Wednesdays). Weekday rules cannot be trusted (§8.4).',
+    affectsValues: false
+  });
 
   corrections.push({
     section: 'Closed days',
     check: 'No closed-day record existed in the source',
-    from: 'Wednesday applied by formula, contradicted by data',
-    to: 'Dated list; 22 Oct marked Unconfirmed',
-    reason: '§8.4, §17.5.11 — a weekday rule cannot be trusted against the data.',
+    from: 'Wednesday applied by formula, contradicted by the data',
+    to: 'Dated list of three closures, each with a reason',
+    reason: '§8.4, §17.5.11 — the day off moved within three weeks, so a weekday ' +
+            'rule cannot be trusted against the data.',
     affectsValues: true
   });
 
-  return { imported: rows.length, closed: closed, unconfirmed: unconfirmed, openDays: openDays };
+  return { imported: rows.length, closed: closed, openDays: openDays };
 }
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,13 @@ function installMenu_() {
   entry.addItem('Record daily batches', 'menuOpenBatchForm');
   menu.addSubMenu(entry);
 
+  // Summaries — read-only views over the same source records.
+  var summary = ui.createMenu('Summary');
+  summary.addItem('Batches / Bazar / Stock…', 'menuOpenSummary');
+  menu.addSubMenu(summary);
+
+  menu.addSeparator();
+  menu.addItem('Closed days…', 'menuOpenClosedDays');
   menu.addSeparator();
   menu.addItem('Refresh stock view', 'menuRefreshStock');
   menu.addItem('Rebuild opening stock', 'menuRebuildOpeningStock');
@@ -102,6 +109,18 @@ function menuOpenBazarForm() {
 function menuOpenBatchForm() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_Batches')
     .setTitle('Daily batches');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenSummary() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_Summary')
+    .setTitle('Summary');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenClosedDays() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_ClosedDays')
+    .setTitle('Closed days');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 

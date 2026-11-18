@@ -352,22 +352,14 @@ function filterByDateAsOf_(rows, asOfDate) {
  *
  * README §8.4: never a weekday rule, never a +1 fudge. Returns 0 when the range
  * is unusable so callers can produce a blank estimate rather than a wrong number.
+ *
+ * Delegates to 10_ClosedDays.gs so there is exactly one definition of "open day".
+ * Two implementations of this would eventually disagree, and every per-day average
+ * would silently follow whichever one the caller happened to use.
  */
 function openDaysBetween_(start, end) {
-  var a = toDate_(start);
-  var b = toDate_(end);
-  if (!a || !b || a > b) return 0;
-
-  var closed = {};
-  readRecords_(SHEETS.CLOSED_DAYS).forEach(function (r) {
-    closed[dateKey_(r['Date'])] = true;
-  });
-
-  var days = 0;
-  dateRange_(a, b).forEach(function (d) {
-    if (!closed[dateKey_(d)]) days++;
-  });
-  return days;
+  var breakdown = openDayBreakdown_(start, end);
+  return breakdown ? breakdown.openDays : 0;
 }
 
 // ---------------------------------------------------------------------------

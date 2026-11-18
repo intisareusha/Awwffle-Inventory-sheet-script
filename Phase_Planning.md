@@ -479,8 +479,8 @@ I will keep this table updated so we both know where we stand.
 | 4 — bazar | yes | 188 tests, 40 Bazar assertions | reviewed and run | **approved** | not yet |
 | 5 — measurements / batches | yes | 238 tests + 59 integration | reviewed and run | **approved** | not yet |
 | 5b — Bazar edit/delete + date order | yes | 296 unit, 260 integration | reviewed and run | **approved** | not yet |
-| 6 — stock | yes | 296 unit, 31 stock + full migration | **awaiting your review** | — | not yet |
-| 6.5 — summary views | planned | — | — | — | — |
+| 6 — stock | yes | 372 unit, 35 stock + full migration | reviewed and run | **approved** | not yet |
+| 6.5 — summary views + closed days | yes | 372 unit, 59 summary, 12 suites | **awaiting your review** | — | not yet |
 | 7 — POS | — | — | — | — | — |
 | 8 — reports | — | — | — | — | — |
 | 9 — cost / adjustments | — | — | — | — | — |

@@ -38,7 +38,10 @@ function runAllTests() {
     testOpeningCutOffSplit,
     testCodeOwnedSettingsSync,
     testEntryRateRoundTrip,
-    testStockSchemaColumns
+    testStockSchemaColumns,
+    testOpenDayBreakdown,
+    testSummaryPresets,
+    testSummaryShape
   ];
 
   var passed = 0;
@@ -1313,6 +1316,135 @@ function testStockSchemaColumns() {
   // Total Cost follows Remaining Value, completing the money block.
   eq_(s, 'Total Cost follows Remaining Value',
     headers.indexOf('Total Cost'), headers.indexOf('Remaining Value') + 1);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Open-day breakdown — README §8.4, and the owner's account of the first weeks
+// ---------------------------------------------------------------------------
+
+/**
+ * The owner's history proves a weekday rule cannot work:
+ *   21 Oct (Wed) open, 22 Oct (Thu) closed, 28 Oct (Wed) open,
+ *   4 Nov and 11 Nov (Wed) closed.
+ *
+ * So open days must come from a dated list only. This tests the arithmetic of
+ * that rule with an injected closure set, no spreadsheet needed.
+ */
+function testOpenDayBreakdown() {
+  var s = newSuite_();
+
+  function breakdown(start, end, closedKeys) {
+    var a = toDate_(start), b = toDate_(end);
+    if (!a || !b || a > b) return null;
+    var calendar = daysBetweenInclusive_(a, b);
+    var closed = 0;
+    dateRange_(a, b).forEach(function (d) {
+      if (closedKeys.indexOf(dateKey_(d)) !== -1) closed++;
+    });
+    return { calendar: calendar, closed: closed, open: calendar - closed };
+  }
+
+  var closures = ['2026-10-22', '2026-11-04', '2026-11-11'];
+
+  // The POS span: 31 calendar days - 3 closed = 28 open, matching 28 snapshots.
+  var pos = breakdown('2026-10-17', '2026-11-16', closures);
+  eq_(s, 'POS span calendar days', pos.calendar, 31);
+  eq_(s, 'POS span closed days', pos.closed, 3);
+  eq_(s, 'POS span open days', pos.open, 28);
+
+  // A traded Wednesday must NOT count as closed, even though Wednesday is the
+  // usual day off. 21 and 28 Oct were both traded.
+  eq_(s, '21 Oct is not closed', closures.indexOf('2026-10-21'), -1);
+  eq_(s, '28 Oct is not closed', closures.indexOf('2026-10-28'), -1);
+  eq_(s, '22 Oct IS closed', closures.indexOf('2026-10-22') !== -1, true);
+
+  // Batch span starts earlier, so it has more open days.
+  var batch = breakdown('2026-10-14', '2026-11-16', closures);
+  eq_(s, 'batch span calendar days', batch.calendar, 34);
+  eq_(s, 'batch span open days', batch.open, 31);
+
+  // No +1 fudge: a single open day is 1.
+  eq_(s, 'single open day is 1', breakdown('2026-11-10', '2026-11-10', closures).open, 1);
+  eq_(s, 'single closed day is 0', breakdown('2026-11-11', '2026-11-11', closures).open, 0);
+
+  eq_(s, 'reversed range is null', breakdown('2026-11-16', '2026-10-17', closures), null);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Preset ranges
+// ---------------------------------------------------------------------------
+
+function testSummaryPresets() {
+  var s = newSuite_();
+
+  var thisMonth = resolvePreset_('thisMonth', '2026-11-18');
+  eq_(s, 'thisMonth starts on the 1st', thisMonth.start, '2026-11-01');
+  eq_(s, 'thisMonth ends today', thisMonth.end, '2026-11-18');
+
+  var lastMonth = resolvePreset_('lastMonth', '2026-11-18');
+  eq_(s, 'lastMonth starts 1 Oct', lastMonth.start, '2026-10-01');
+  eq_(s, 'lastMonth ends 31 Oct (not 30)', lastMonth.end, '2026-10-31');
+
+  var last7 = resolvePreset_('last7', '2026-11-18');
+  eq_(s, 'last7 end is today', last7.end, '2026-11-18');
+  eq_(s, 'last7 start is 6 days earlier', last7.start, '2026-11-12');
+  eq_(s, 'last7 covers 7 days',
+    daysBetweenInclusive_(last7.start, last7.end), 7);
+
+  var last30 = resolvePreset_('last30', '2026-11-18');
+  eq_(s, 'last30 covers 30 days',
+    daysBetweenInclusive_(last30.start, last30.end), 30);
+
+  // 'all' has no bounds: callers use the data extent instead.
+  eq_(s, 'all returns null', resolvePreset_('all', '2026-11-18'), null);
+  eq_(s, 'unknown preset returns null', resolvePreset_('nonsense', '2026-11-18'), null);
+
+  // Month-end edges: December's "last month" is November.
+  var dec = resolvePreset_('lastMonth', '2026-12-05');
+  eq_(s, 'lastMonth across a month boundary starts 1 Nov', dec.start, '2026-11-01');
+  eq_(s, 'lastMonth across a month boundary ends 30 Nov', dec.end, '2026-11-30');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Summary payload shape
+// ---------------------------------------------------------------------------
+
+/**
+ * The sidebars render these payloads positionally by field name, so a missing or
+ * renamed field shows up as "undefined" in the UI rather than an error.
+ */
+function testSummaryShape() {
+  var s = newSuite_();
+
+  // Public surface the Summary sidebar calls.
+  eq_(s, 'getSummaryOptions is public', typeof getSummaryOptions, 'function');
+  eq_(s, 'summaryBatches is public', typeof summaryBatches, 'function');
+  eq_(s, 'summaryBazar is public', typeof summaryBazar, 'function');
+  eq_(s, 'summaryStock is public', typeof summaryStock, 'function');
+  eq_(s, 'resolveSummaryPreset is public', typeof resolveSummaryPreset, 'function');
+
+  // Public surface the Closed days sidebar calls.
+  eq_(s, 'getClosedDaysPanel is public', typeof getClosedDaysPanel, 'function');
+  eq_(s, 'addClosedDay is public', typeof addClosedDay, 'function');
+  eq_(s, 'removeClosedDay is public', typeof removeClosedDay, 'function');
+
+  // One definition of "open day", shared by stock and every summary.
+  eq_(s, 'openDayBreakdown_ exists', typeof openDayBreakdown_, 'function');
+  eq_(s, 'openDaysBetween_ exists', typeof openDaysBetween_, 'function');
+
+  // The weekday list must match JavaScript's getDay() ordering.
+  eq_(s, 'weekday names match getDay', WEEKDAY_NAMES_.join(','),
+    'Sun,Mon,Tue,Wed,Thu,Fri,Sat');
+
+  // Preparations used in the batches summary must stay in the required order.
+  eq_(s, 'summary uses the required preparation order',
+    PREPARATIONS.join('|'), 'Batter|Nutella Mix|Cream|White Mix|Cheese');
 
   return s;
 }
