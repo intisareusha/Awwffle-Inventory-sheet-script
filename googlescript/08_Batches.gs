@@ -44,8 +44,11 @@ function getBatchForDate_(dateString) {
 
   var values = {};
   PREPARATIONS.forEach(function (prep) {
+    // A saved batch always has a number per preparation. Older rows imported from
+    // the source workbook may hold a blank, so that reads back as 0 too rather
+    // than showing an empty box.
     var n = toNumber_(found[prep]);
-    values[prep] = n === null ? '' : n;
+    values[prep] = n === null ? 0 : n;
   });
 
   return {
@@ -68,7 +71,7 @@ function getRecentBatches_(limit) {
     var total = 0;
     PREPARATIONS.forEach(function (prep) {
       var n = toNumber_(r[prep]);
-      values[prep] = n === null ? '' : n;
+      values[prep] = n === null ? 0 : n;
       if (n !== null) total += n;
     });
     return { date: d, key: dateKey_(d), values: values, total: total };
@@ -196,31 +199,32 @@ function validateBatch_(payload, isClosed) {
   PREPARATIONS.forEach(function (prep) {
     var v = raw[prep];
 
-    // A blank means "none of this preparation was made" and is stored blank, not
-    // zero, so the sheet reflects what was entered (§3.1 logic applied to batches).
+    // Every preparation is stored as a NUMBER on save — blank or a typed 0 both
+    // become 0. The owner asked for this explicitly, and it matches the source
+    // workbook, which stored 0.0 in these cells rather than leaving them empty.
+    //
+    // This differs from Measurements, where a blank genuinely means "this
+    // ingredient is not used in that preparation" and must stay blank (§3.1).
+    // A batch of 0 is a real fact: you made none of that preparation.
     if (isBlank_(v)) {
-      values[prep] = '';
+      values[prep] = 0;
       return;
     }
 
     var n = toNumber_(v);
     if (n === null) {
       errors.push(prep + ' must be a number.');
-      values[prep] = '';
+      values[prep] = 0;
       return;
     }
     if (n < 0) {
       errors.push(prep + ' cannot be negative.');
       return;
     }
-    if (n === 0) {
-      values[prep] = '';
-      return;
-    }
 
     values[prep] = n;
     total += n;
-    anyPositive = true;
+    if (n > 0) anyPositive = true;
   });
 
   if (!anyPositive && errors.length === 0) {

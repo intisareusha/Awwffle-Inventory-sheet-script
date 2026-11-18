@@ -127,13 +127,23 @@ function toDate_(v) {
   if (v instanceof Date) {
     d = new Date(v.getTime());
   } else if (typeof v === 'string') {
-    // Accept ISO and dd/mm/yyyy, which is how the owner writes dates.
     var s = v.trim();
-    var m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (m) {
-      d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+    // yyyy-mm-dd must be parsed EXPLICITLY as a local date.
+    // `new Date('2026-11-18')` is parsed as UTC midnight by the language spec, so
+    // in any timezone behind UTC it becomes the previous day — which silently
+    // shifts a date by one when it is stored and read back.
+    var iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (iso) {
+      d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
     } else {
-      d = new Date(s);
+      // dd/mm/yyyy or dd-mm-yyyy, which is how the owner writes dates.
+      var dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmy) {
+        d = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+      } else {
+        d = new Date(s);
+      }
     }
   } else {
     return null;

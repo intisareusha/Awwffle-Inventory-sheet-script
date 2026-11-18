@@ -287,6 +287,21 @@ function testDateHelpers() {
   eq_(s, 'dateKey from Date', dateKey_(new Date(2026, 9, 17)), '2026-10-17');
   eq_(s, 'dateKey dd/mm/yyyy', dateKey_('17/10/2026'), '2026-10-17');
 
+  // A yyyy-mm-dd string must NOT be parsed as UTC. `new Date('2026-11-18')` is
+  // UTC midnight, which is the previous day in any timezone behind UTC — a
+  // silent one-day shift on every saved date. Parsing must be explicit.
+  eq_(s, 'ISO date keeps its day', dateKey_('2026-11-18'), '2026-11-18');
+  eq_(s, 'ISO date is local midnight',
+    toDate_('2026-11-18').getHours(), 0);
+  eq_(s, 'ISO date day-of-month', toDate_('2026-11-18').getDate(), 18);
+  eq_(s, 'ISO date month', toDate_('2026-11-18').getMonth(), 10);   // zero-based
+  eq_(s, 'ISO round-trip', dateKey_(toDate_('2026-11-18')), '2026-11-18');
+
+  // End of month and year boundaries must survive the round trip.
+  eq_(s, 'month end round-trip', dateKey_(toDate_('2026-10-31')), '2026-10-31');
+  eq_(s, 'year end round-trip', dateKey_(toDate_('2026-12-31')), '2026-12-31');
+  eq_(s, 'leap day round-trip', dateKey_(toDate_('2028-02-29')), '2028-02-29');
+
   eq_(s, 'days inclusive single', daysBetweenInclusive_('2026-10-17', '2026-10-17'), 1);
   eq_(s, 'days inclusive span', daysBetweenInclusive_('2026-10-17', '2026-11-16'), 31);
 
@@ -675,10 +690,13 @@ function testBatchValidation() {
   eq_(s, 'valid batch accepted', good.ok, true);
   eq_(s, 'fractional batches allowed', good.values['Batter'], 1.5);
   eq_(s, 'fractional total', good.total, 3);
-  eq_(s, 'blank stays blank not zero', good.values['White Mix'], '');
+  // Batches store 0 rather than blank: "we made none" is a real fact, and it
+  // matches the source workbook, which stored 0.0 in these cells.
+  eq_(s, 'blank stored as 0', good.values['White Mix'], 0);
+  eq_(s, 'blank is a number not a string', typeof good.values['White Mix'], 'number');
 
   var zero = validateBatch_({ date: '2026-11-17', values: { 'Batter': 0, 'Cream': 1 } });
-  eq_(s, 'explicit zero stored as blank', zero.values['Batter'], '');
+  eq_(s, 'explicit zero stored as 0', zero.values['Batter'], 0);
   eq_(s, 'zero plus real value sums correctly', zero.total, 1);
 
   eq_(s, 'empty batch rejected',

@@ -334,7 +334,14 @@
   // ---- Bootstrap ----
   // Wrapped so a failure reports itself rather than leaving a half-built form.
   try {
-    $('date').value = new Date().toISOString().slice(0, 10);
+    // Local date, not UTC: toISOString() would give the wrong day in any
+    // timezone behind UTC. The server sets the authoritative "today" below.
+    (function setLocalToday() {
+      var now = new Date();
+      var m = now.getMonth() + 1;
+      var d = now.getDate();
+      $('date').value = now.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+    })();
 
     for (var i = 0; i < FIELDS.length; i++) {
       var el = $(FIELDS[i].id);

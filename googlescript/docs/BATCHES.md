@@ -24,9 +24,21 @@ The form is deliberately plain: one date, five number boxes, one save button.
 
 3. **Save batch**.
 
-That is the whole workflow. `0` and blank both mean "none of this preparation",
-and fractions are fine — `0.5` is a real half batch. The running **Total** under
-the boxes just adds them up so you can sanity-check before saving.
+That is the whole workflow. Fractions are fine — `0.5` is a real half batch. The
+running **Total** under the boxes just adds them up so you can sanity-check before
+saving.
+
+**Nothing is ever left blank in the Batches sheet.** A blank box and a typed `0`
+both save as `0`, so every saved day shows all five numbers. That is deliberate:
+"we made no Cheese today" is a real fact worth recording, and it matches your
+source workbook, which stored `0.0` in those cells.
+
+> This differs from **Measurements**, where a blank genuinely means "this
+> ingredient is not used in that preparation" and stays blank. A batch of `0` and
+> a recipe blank are different things.
+
+An all-zero batch is still refused, because a day with nothing made records
+nothing.
 
 ---
 
