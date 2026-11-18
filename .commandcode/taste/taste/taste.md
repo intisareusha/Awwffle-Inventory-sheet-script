@@ -1,0 +1,9 @@
+# Taste
+- Wants full understanding and clarification before implementation: read and evaluate the source material first, ask blocking questions, and wait for answers rather than starting to build. Confidence: 0.65
+- Do not modify source/data files during review or analysis work — report findings and recommendations in the chat/README only, leaving files untouched ("Do not change any file, only write here"). Confidence: 0.8
+- Wants one canonical naming convention for items across the whole system — no variant spellings/aliases per sheet; align every sheet to the canonical names used in the master Stock list. Confidence: 0.6
+- Wants explanations and questions phrased in plain, easy language with no jargon, because they need to understand what they're answering ("Ask in easy language so i can understand easily"). Confidence: 0.75
+- Explains their own rules in their own words when asked, so offer an "I'll explain in my words" escape hatch instead of only fixed-option questions. Confidence: 0.5
+- Edit existing documents incrementally — keep the current structure and wording, add sections/details rather than rewriting, and never delete important details; strip only what is now unnecessary. Confidence: 0.75
+- Expects spec/README documents to be self-sufficient references that capture the full understanding plus the known gaps, not brief summaries. Confidence: 0.6
+- Wants decisions agreed in chat written back into the spec/README before implementation starts ("Update the readme first the decisions we have just made. Then tell me if you are ready") — docs-first workflow, not code-first. Confidence: 0.65
