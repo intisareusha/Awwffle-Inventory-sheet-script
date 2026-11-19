@@ -85,6 +85,10 @@
       <div><label>From</label><input type="date" id="batchFrom"></div>
       <div><label>To</label><input type="date" id="batchTo"></div>
     </div>
+    <div class="row">
+      <label>Preparation</label>
+      <select id="batchPrep"></select>
+    </div>
     <button type="button" class="primary" id="batchRun" style="width:100%">Show batches</button>
     <div id="batchOut" style="margin-top:10px"></div>
   </div>
@@ -181,6 +185,7 @@
     $('stockPopulation').addEventListener('change', function () { runTab('stock'); });
     $('stockItem').addEventListener('change', function () { runTab('stock'); });
     $('stockAsOf').addEventListener('change', function () { runTab('stock'); });
+    $('batchPrep').addEventListener('change', function () { runTab('batch'); });
 
     google.script.run
       .withSuccessHandler(function (opts) {
@@ -218,6 +223,17 @@
     $('bazarFrom').value = OPTIONS.dataStart || OPTIONS.today;
     $('bazarTo').value = OPTIONS.dataEnd || OPTIONS.today;
     $('stockAsOf').value = OPTIONS.today;
+
+    // Preparation filter: '(all)' then each recipe in its fixed order.
+    var prep = $('batchPrep');
+    var allPrep = document.createElement('option');
+    allPrep.value = ''; allPrep.textContent = '(all preparations)';
+    prep.appendChild(allPrep);
+    (OPTIONS.preparations || []).forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      prep.appendChild(o);
+    });
 
     // Group and population selects
     var g = $('stockGroup');
@@ -290,7 +306,7 @@
       google.script.run
         .withSuccessHandler(renderBatches)
         .withFailureHandler(fail('batches'))
-        .summaryBatches($('batchFrom').value, $('batchTo').value);
+        .summaryBatches($('batchFrom').value, $('batchTo').value, $('batchPrep').value);
     } else if (which === 'bazar') {
       $('bazarOut').innerHTML = '<div class="muted">Loading…</div>';
       google.script.run
@@ -322,23 +338,25 @@
 
   // ---------- Batches ----------
   function renderBatches(d) {
+    var order = ['Batter', 'Nutella Mix', 'Cream', 'White Mix', 'Cheese'];
+    var selected = d.preparation || '';
+    var cols = selected ? [selected] : order;
+
     if (!d.recordCount) {
-      $('batchOut').innerHTML = '<div class="muted">No batches recorded in this range.</div>';
+      $('batchOut').innerHTML = '<div class="muted">No ' +
+        (selected ? esc(selected) + ' ' : '') + 'batches recorded in this range.</div>';
       return;
     }
 
     var tiles = '<div class="tiles">' +
-      tile('Batches made', num(d.grandTotal)) +
       tile('Records', d.recordCount) +
       tile('Open days', d.openDays) +
       tile('Calendar days', d.calendarDays) +
-      tile('Avg per open day', num(d.avgPerOpenDay)) +
       tile('Closed days', d.closedDays) +
       '</div>';
 
     var prepRows = '';
-    var order = ['Batter', 'Nutella Mix', 'Cream', 'White Mix', 'Cheese'];
-    order.forEach(function (p) {
+    cols.forEach(function (p) {
       prepRows += '<tr><td>' + esc(p) + '</td><td class="n">' +
         num(d.totals[p]) + '</td></tr>';
     });
@@ -347,27 +365,37 @@
       '<div class="tbl-wrap"><table><thead><tr><th>Preparation</th>' +
       '<th class="n">Batches</th></tr></thead><tbody>' + prepRows + '</tbody></table></div>';
 
+    var avgRows = '';
+    cols.forEach(function (p) {
+      avgRows += '<tr><td>' + esc(p) + '</td><td class="n">' +
+        num(d.avgByPreparation[p]) + '</td></tr>';
+    });
+
+    var avgs = '<div class="section-title">Average per open day</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Preparation</th>' +
+      '<th class="n">Avg / open day</th></tr></thead><tbody>' + avgRows + '</tbody></table></div>';
+
     var dayRows = '';
     d.perDay.slice(0, 60).forEach(function (row) {
       var cells = '';
-      order.forEach(function (p) {
+      cols.forEach(function (p) {
         var v = row.values[p];
         cells += '<td class="n">' + (v ? num(v) : '') + '</td>';
       });
       dayRows += '<tr><td>' + esc(row.date) + '</td><td>' + esc(row.weekday) + '</td>' +
-        cells + '<td class="n"><b>' + num(row.total) + '</b></td></tr>';
+        cells + '</tr>';
     });
 
     var head = '<tr><th>Date</th><th>Day</th>';
-    order.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
-    head += '<th class="n">Total</th></tr>';
+    cols.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
+    head += '</tr>';
 
     var perDay = '<div class="section-title">Per day' +
       (d.perDay.length > 60 ? ' (newest 60)' : '') + '</div>' +
       '<div class="tbl-wrap"><table><thead>' + head + '</thead><tbody>' +
       dayRows + '</tbody></table></div>';
 
-    $('batchOut').innerHTML = tiles + preps + perDay;
+    $('batchOut').innerHTML = tiles + preps + avgs + perDay;
   }
 
   // ---------- Bazar ----------

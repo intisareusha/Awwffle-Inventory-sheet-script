@@ -29,11 +29,20 @@ Ranges are inclusive at both ends: 1–30 Nov includes the 30th.
 
 ## Batches tab
 
-- **Batches made** — total across all preparations in the range
+- **Preparation** — dropdown to narrow the whole tab to one recipe
 - **Records / Open days / Calendar days / Closed days**
-- **Avg per open day** — divides by trading days, not calendar days
 - **By preparation** — Batter, Nutella Mix, Cream, White Mix, Cheese
-- **Per day** — every batch record, newest first
+- **Average per open day** — one figure per recipe, below the totals
+- **Per day** — every batch record, newest first, with only the columns in view
+
+There is deliberately **no grand total and no single average**. Batches are not
+alike — one Batter batch and one Cream batch are different things — so a combined
+figure answers no real question. Each recipe carries its own total and its own
+average per open day.
+
+When a preparation is chosen, the tab narrows to the days that produced it: the
+record count, the totals, the average and the per-day columns all follow that one
+recipe. Records with none of it are left out rather than shown as zeros.
 
 The per-day table is the maintenance tool. Totals alone would hide a mistyped
 entry; a per-day list makes "12 Batter on the 3rd" obvious.

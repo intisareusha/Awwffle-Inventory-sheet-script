@@ -26,9 +26,9 @@ function getSummaryOptions() {
   return getSummaryOptions_();
 }
 
-/** Batches summary for a date range. */
-function summaryBatches(startDate, endDate) {
-  return summaryBatches_(startDate, endDate);
+/** Batches summary for a date range, optionally narrowed to one preparation. */
+function summaryBatches(startDate, endDate, preparation) {
+  return summaryBatches_(startDate, endDate, preparation);
 }
 
 /** Bazar summary for a date range. */
@@ -83,6 +83,7 @@ function getSummaryOptions_() {
     thisMonthStart: dateKey_(thisMonthStart),
     items: items,
     groups: Object.keys(groups).sort(),
+    preparations: PREPARATIONS.slice(),
     populations: [POPULATION.RECIPE, POPULATION.MANUAL, POPULATION.RESALE],
     presets: [
       { key: 'all', label: 'All time' },
@@ -133,18 +134,23 @@ function resolvePreset_(preset, todayStr) {
 /**
  * Batch totals over a range, with a per-day breakdown.
  *
+ * An optional preparation narrows the whole summary to that one recipe: only the
+ * days that produced it are counted. Batches are never alike, so a single grand
+ * total says nothing useful — the per-recipe figures are the real answer.
+ *
  * The per-day table is the maintenance tool: it is how an odd entry (12 Batter on
  * one day) gets noticed. Totals alone would hide it.
  */
-function summaryBatches_(startDate, endDate) {
+function summaryBatches_(startDate, endDate, preparation) {
   var start = toDate_(startDate);
   var end = toDate_(endDate);
+  var wanted = String(preparation || '');
+  var filter = PREPARATIONS.indexOf(wanted) !== -1 ? wanted : '';
 
   var totals = {};
   PREPARATIONS.forEach(function (p) { totals[p] = 0; });
 
   var perDay = [];
-  var grand = 0;
   var recordCount = 0;
   var first = null;
   var last = null;
@@ -155,45 +161,55 @@ function summaryBatches_(startDate, endDate) {
     if (start && d < start) return;
     if (end && d > end) return;
 
-    recordCount++;
-    if (!first || d < first) first = d;
-    if (!last || d > last) last = d;
-
-    var rowTotal = 0;
     var values = {};
     PREPARATIONS.forEach(function (p) {
       var n = toNumber_(r[p]);
       values[p] = n === null ? 0 : n;
-      totals[p] += values[p];
-      rowTotal += values[p];
     });
-    grand += rowTotal;
+
+    // A day with no batch of the chosen preparation is not part of that recipe's
+    // story, so it must not pad the record count or the averages.
+    if (filter && !values[filter]) return;
+
+    recordCount++;
+    if (!first || d < first) first = d;
+    if (!last || d > last) last = d;
+
+    PREPARATIONS.forEach(function (p) { totals[p] += values[p]; });
 
     perDay.push({
       date: dateKey_(d),
       weekday: WEEKDAY_NAMES_[d.getDay()],
-      values: values,
-      total: round2_(rowTotal)
+      values: values
     });
   });
 
   perDay.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
   // Open days come from the dated closure list, never a weekday rule (§8.4).
-  var breakdown = first && last ? openDayBreakdown_(first, last) : null;
+  // The requested range is the denominator: "average per open day between these
+  // dates" must not shrink just because the last few days had no entry.
+  var spanStart = start || first;
+  var spanEnd = end || last;
+  var breakdown = spanStart && spanEnd ? openDayBreakdown_(spanStart, spanEnd) : null;
+  var openDays = breakdown ? breakdown.openDays : 0;
+
+  var avgByPreparation = {};
+  PREPARATIONS.forEach(function (p) {
+    avgByPreparation[p] = openDays > 0 ? round2_(totals[p] / openDays) : '';
+  });
 
   return {
     range: { start: start ? dateKey_(start) : '', end: end ? dateKey_(end) : '' },
+    preparation: filter,
     totals: totals,
-    grandTotal: round2_(grand),
+    avgByPreparation: avgByPreparation,
     recordCount: recordCount,
     firstDate: first ? dateKey_(first) : '',
     lastDate: last ? dateKey_(last) : '',
-    openDays: breakdown ? breakdown.openDays : 0,
+    openDays: openDays,
     calendarDays: breakdown ? breakdown.calendarDays : 0,
     closedDays: breakdown ? breakdown.closedDays : 0,
-    avgPerOpenDay: (breakdown && breakdown.openDays > 0)
-      ? round2_(grand / breakdown.openDays) : '',
     perDay: perDay
   };
 }
