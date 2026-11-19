@@ -90,7 +90,10 @@ function itemCosting_(itemName, opts) {
   // purchases on or before it are already represented by the opening layer.
   // Counting them here as well would double the stock: a 25 L October Milk buy
   // would appear both as opening stock and as a purchase.
-  var cutOff = openingCutOff_();
+  //
+  // `opts.cutOff` is an optimisation for callers that value many items at once
+  // (the batch cost model). Passing it avoids one Settings sheet read per item.
+  var cutOff = opts.cutOff || openingCutOff_();
 
   var purchaseQty = 0;
   var purchaseValue = 0;

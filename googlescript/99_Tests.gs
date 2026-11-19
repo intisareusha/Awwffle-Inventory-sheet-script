@@ -41,7 +41,8 @@ function runAllTests() {
     testStockSchemaColumns,
     testOpenDayBreakdown,
     testSummaryPresets,
-    testSummaryShape
+    testSummaryShape,
+    testBatchCostModel
   ];
 
   var passed = 0;
@@ -1445,6 +1446,77 @@ function testSummaryShape() {
   // Preparations used in the batches summary must stay in the required order.
   eq_(s, 'summary uses the required preparation order',
     PREPARATIONS.join('|'), 'Batter|Nutella Mix|Cream|White Mix|Cheese');
+
+  // Cost model seams the batches summary depends on.
+  eq_(s, 'batchCostPerPreparationFrom_ exists',
+    typeof batchCostPerPreparationFrom_, 'function');
+  eq_(s, 'batchCostModel_ exists', typeof batchCostModel_, 'function');
+  eq_(s, 'summaryCostComparison_ exists', typeof summaryCostComparison_, 'function');
+  eq_(s, 'batchTotalsFromRows_ exists', typeof batchTotalsFromRows_, 'function');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Batch ingredient cost — one batch of each preparation
+// ---------------------------------------------------------------------------
+
+/**
+ * A batch costs its ingredients at the weighted-average price per base unit.
+ *
+ * The arithmetic is the part that must be exact: a recipe in grams multiplied by a
+ * cost in grams is money, and mixing the two bases is how a batch cost ends up
+ * wrong by a factor of 1,000.
+ */
+function testBatchCostModel() {
+  var s = newSuite_();
+
+  function row(vals) {
+    var out = { Batter: '', 'Nutella Mix': '', Cream: '', 'White Mix': '', Cheese: '' };
+    Object.keys(vals).forEach(function (k) { out[k] = vals[k]; });
+    return out;
+  }
+
+  var matrix = {
+    'Flour': row({ Batter: 500 }),
+    'Milk': row({ Batter: 1000 }),
+    'Egg': row({ Batter: 6 }),
+    'Whipped Cream': row({ Cream: 500 }),
+    'Nutella': row({ 'Nutella Mix': 175 })
+  };
+
+  var avg = {
+    'Flour': 0.08,            // 80 per kg
+    'Milk': 0.08,             // 80 per litre
+    'Egg': 10,                // 10 per piece
+    'Whipped Cream': 0.215,   // 215 per 1 kg tub
+    'Nutella': 830 / 350      // 830 per 350 gm jar, per gram
+  };
+
+  var model = batchCostPerPreparationFrom_(matrix, avg);
+
+  // Batter: 500 gm x 0.08 + 1,000 ml x 0.08 + 6 pieces x 10 = 40 + 80 + 60
+  closeTo_(s, 'Batter batch cost', model.perBatch['Batter'], 180, 1e-9);
+  // Cream: 500 gm x 0.215
+  closeTo_(s, 'Cream batch cost', model.perBatch['Cream'], 107.5, 1e-9);
+  // Nutella Mix: 175 gm x (830 / 350)
+  closeTo_(s, 'Nutella Mix batch cost', model.perBatch['Nutella Mix'], 415, 1e-9);
+
+  eq_(s, 'unused preparation costs 0', model.perBatch['Cheese'], 0);
+  eq_(s, 'nothing unpriced when every averaged ingredient has a price',
+    model.unpriced.length, 0);
+
+  // An ingredient bought for nothing (or never bought) must be reported, not
+  // quietly counted at 0 while the total looks complete.
+  var unpriced = batchCostPerPreparationFrom_(
+    { 'Flour': row({ Batter: 500 }) }, { 'Flour': 0 });
+  eq_(s, 'zero-cost ingredient is reported', unpriced.unpriced.join(','), 'Flour');
+  eq_(s, 'zero-cost ingredient contributes 0', unpriced.perBatch['Batter'], 0);
+
+  // Blank cells are not zero rows: a preparation with no ingredients costs 0.
+  var empty = batchCostPerPreparationFrom_({}, {});
+  eq_(s, 'empty matrix is all zeros', empty.perBatch['Batter'], 0);
+  eq_(s, 'empty matrix reports nothing unpriced', empty.unpriced.length, 0);
 
   return s;
 }

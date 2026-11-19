@@ -23,28 +23,69 @@ date. Batches and Bazar genuinely accumulate, so they take a range.
 ### Date shortcuts
 
 Every range tab has **All time · This month · Last month · Last 7 days · Last 30 days**.
-Ranges are inclusive at both ends: 1–30 Nov includes the 30th.
+Ranges are inclusive at both ends: 1–30 Nov includes the 30th. The shortcut you
+chose stays highlighted; typing a date by hand clears the highlight because no
+shortcut describes that range any more.
 
 ---
 
 ## Batches tab
 
 - **Preparation** — dropdown to narrow the whole tab to one recipe
-- **Records / Open days / Calendar days / Closed days**
-- **By preparation** — Batter, Nutella Mix, Cream, White Mix, Cheese
-- **Average per open day** — one figure per recipe, below the totals
+- **Calendar days / Open days / Closed days / Days Record**
+- **By preparation** — Batter, Nutella Mix, Cream, White Mix, Cheese, each with
+  its batch count, **average cost per batch** and **total cost** for the range
+- **Average per open day** — batches per open day and cost per open day, per recipe
 - **Per day** — every batch record, newest first, with only the columns in view
+- **Cost comparison** — average batch cost for each preset range, with an arrow
+  against All time
 
 There is deliberately **no grand total and no single average**. Batches are not
 alike — one Batter batch and one Cream batch are different things — so a combined
-figure answers no real question. Each recipe carries its own total and its own
-average per open day.
+figure answers no real question. Each recipe carries its own total, its own
+average per open day and its own cost.
+
+### How a batch cost is worked out
+
+A batch costs the ingredients it consumes, multiplied by each ingredient's
+**weighted-average cost per base unit** — the same figure the Stock tab shows.
+Nothing is stored or hand-typed, so a purchase price change reaches the next
+summary automatically.
+
+- Recipe quantities come from the live **Measurements** sheet (grams / ml / pieces).
+- Prices come from opening stock plus every purchase up to the **end of the range**.
+  An old range is therefore costed at the prices in force then, not restated at
+  today's prices — which is what makes the comparison table meaningful.
+- An ingredient with no purchase history yet is called out under the tables rather
+  than silently counted at zero.
+
+This is **ingredient cost only** — what the recipe consumes. Packaging, labour and
+utilities are not part of a batch cost; packaging is its own cost line (§13.D).
+
+### Cost comparison
+
+| Row | What it covers |
+|---|---|
+| Date range | the From / To currently entered |
+| Last 7 days | today − 6 days → today |
+| Last 30 days | today − 29 days → today |
+| This month | the 1st of this month → today |
+| Last month | the full previous calendar month |
+| All time | first batch → last batch; the baseline row |
+
+Columns are **Batches**, **Avg cost** (total ingredient cost ÷ batches made in
+that range) and **vs All time**. The All time row has no arrow — it is the
+baseline. ▲ red means the range cost more per batch than All time; ▼ green means
+it cost less. When a preparation is selected, both the tables and the comparison
+follow that one recipe, so "is Batter getting dearer?" has a direct answer.
 
 When a preparation is chosen, the tab narrows to the days that produced it: the
 record count, the totals, the average and the per-day columns all follow that one
 recipe. Records with none of it are left out rather than shown as zeros.
 
-The per-day table is the maintenance tool. Totals alone would hide a mistyped
+**The per-day table appears only for a narrower range.** Under All time it would
+just repeat the Batches sheet, so it is hidden; choosing a preset or typing a
+range brings it back as the maintenance tool. Totals alone would hide a mistyped
 entry; a per-day list makes "12 Batter on the 3rd" obvious.
 
 ---

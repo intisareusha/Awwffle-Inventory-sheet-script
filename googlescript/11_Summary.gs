@@ -128,6 +128,190 @@ function resolvePreset_(preset, todayStr) {
 }
 
 // ---------------------------------------------------------------------------
+// Batch cost model
+// ---------------------------------------------------------------------------
+//
+// A batch costs the ingredients it consumes, valued at their weighted-average
+// cost per base unit — the same figure the Stock view uses. No stored price, no
+// hard-coded rate: if a purchase price moves, the next summary reflects it.
+//
+// COST BASIS FOR A RANGE
+// The average price is taken as of the range end, using opening stock plus every
+// purchase up to that date. A range that ends before a price rise is therefore
+// costed at the prices that were actually in force, which is what makes the
+// Cost comparison table meaningful.
+
+/**
+ * Pure cost maths: cost of one batch of each preparation.
+ *
+ * `matrix`  ingredient -> { Batter: 500, ... } in base units per batch
+ * `avgCost` ingredient -> money per base unit
+ *
+ * Returns { perBatch: { Batter: 1234.5, ... }, unpriced: [ingredient, ...] }.
+ * Unpriced ingredients have no purchase history yet, so their cost is 0 — they
+ * are reported so the UI can say the figure excludes them instead of pretending.
+ */
+function batchCostPerPreparationFrom_(matrix, avgCost) {
+  var perBatch = {};
+  PREPARATIONS.forEach(function (p) { perBatch[p] = 0; });
+
+  var unpriced = [];
+
+  Object.keys(matrix).forEach(function (ingredient) {
+    var row = matrix[ingredient] || {};
+    var used = PREPARATIONS.some(function (p) { return !isBlank_(row[p]); });
+    if (!used) return;
+
+    var avg = Number(avgCost[ingredient] || 0);
+    if (!(avg > 0)) unpriced.push(ingredient);
+
+    PREPARATIONS.forEach(function (p) {
+      if (isBlank_(row[p])) return;
+      perBatch[p] += Number(row[p]) * avg;
+    });
+  });
+
+  return { perBatch: perBatch, unpriced: unpriced };
+}
+
+/** Builds the live cost model, optionally at a historical date. */
+function batchCostModel_(bazarRows, openingRows, cutOff, asOfDate) {
+  var limit = asOfDate ? toDate_(asOfDate) : null;
+  var rows = limit ? bazarRows.filter(function (r) {
+    var d = toDate_(r['Date']);
+    return d && d <= limit;
+  }) : bazarRows;
+
+  var matrix = readMeasurementMatrix_();
+  var avgCost = {};
+
+  Object.keys(matrix).forEach(function (ingredient) {
+    avgCost[ingredient] = itemCosting_(ingredient, {
+      openingRows: openingRows,
+      bazarRows: rows,
+      cutOff: cutOff
+    }).avg;
+  });
+
+  return batchCostPerPreparationFrom_(matrix, avgCost);
+}
+
+/** Totals per preparation from already-read batch rows, for one range. */
+function batchTotalsFromRows_(rows, startDate, endDate) {
+  var start = startDate ? toDate_(startDate) : null;
+  var end = endDate ? toDate_(endDate) : null;
+
+  var totals = {};
+  PREPARATIONS.forEach(function (p) { totals[p] = 0; });
+  var records = 0;
+
+  rows.forEach(function (r) {
+    var d = toDate_(r['Date']);
+    if (!d) return;
+    if (start && d < start) return;
+    if (end && d > end) return;
+
+    records++;
+    PREPARATIONS.forEach(function (p) {
+      var n = toNumber_(r[p]);
+      if (n !== null) totals[p] += n;
+    });
+  });
+
+  return { totals: totals, records: records };
+}
+
+/**
+ * Average batch cost per preset range, compared with All time.
+ *
+ * This is the trend view: "is what I make getting more expensive?" Each range is
+ * costed at the prices in force at its own end, so a purchase-price rise shows up
+ * in the periods after it rather than retroactively rewriting every past figure.
+ */
+function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
+  var wanted = String(preparation || '');
+  var filter = PREPARATIONS.indexOf(wanted) !== -1 ? wanted : '';
+
+  var batchRows = readRecords_(SHEETS.BATCHES);
+  var bazarRows = readRecords_(SHEETS.BAZAR);
+  var openingRows = readRecords_(SHEETS.OPENING_STOCK);
+  var cutOff = openingCutOff_();
+
+  var dates = batchRows.map(function (r) { return toDate_(r['Date']); })
+    .filter(Boolean).sort(function (a, b) { return a - b; });
+
+  var dataStart = dates.length ? dateKey_(dates[0]) : '';
+  var dataEnd = dates.length ? dateKey_(dates[dates.length - 1]) : '';
+  var today = dateKey_(new Date());
+
+  function rangeOf(preset) {
+    return resolvePreset_(preset, today) || { start: dataStart, end: dataEnd };
+  }
+
+  var definitions = [
+    { key: 'selected', label: 'Date range', range: {
+      start: selectedStart || dataStart, end: selectedEnd || dataEnd } },
+    { key: 'last7', label: 'Last 7 days', range: rangeOf('last7') },
+    { key: 'last30', label: 'Last 30 days', range: rangeOf('last30') },
+    { key: 'thisMonth', label: 'This month', range: rangeOf('thisMonth') },
+    { key: 'lastMonth', label: 'Last month', range: rangeOf('lastMonth') },
+    { key: 'all', label: 'All time', range: { start: dataStart, end: dataEnd } }
+  ];
+
+  var rows = definitions.map(function (def) {
+    var stats = batchTotalsFromRows_(batchRows, def.range.start, def.range.end);
+
+    var batches = 0;
+    PREPARATIONS.forEach(function (p) {
+      if (filter && p !== filter) return;
+      batches += stats.totals[p];
+    });
+
+    // An empty range has nothing to price, and building the model would only
+    // produce a zero that reads like a real figure.
+    if (!batches) {
+      return {
+        key: def.key,
+        label: def.label,
+        start: def.range.start || '',
+        end: def.range.end || '',
+        batches: 0,
+        cost: 0,
+        avgCost: ''
+      };
+    }
+
+    var model = batchCostModel_(bazarRows, openingRows, cutOff, def.range.end);
+
+    var cost = 0;
+    PREPARATIONS.forEach(function (p) {
+      if (filter && p !== filter) return;
+      cost += stats.totals[p] * model.perBatch[p];
+    });
+
+    return {
+      key: def.key,
+      label: def.label,
+      start: def.range.start || '',
+      end: def.range.end || '',
+      batches: round2_(batches),
+      cost: round2_(cost),
+      avgCost: round2_(cost / batches)
+    };
+  });
+
+  // Every row is judged against the all-time average, which is the stable
+  // baseline; comparing adjacent rows would make the arrows jump for no reason.
+  var baseline = rows[rows.length - 1];
+  rows.forEach(function (r) {
+    if (r.key === 'all' || r.avgCost === '' || baseline.avgCost === '') return;
+    r.deltaPct = round2_(((r.avgCost - baseline.avgCost) / baseline.avgCost) * 100);
+  });
+
+  return { preparation: filter, rows: rows };
+}
+
+// ---------------------------------------------------------------------------
 // Batches summary
 // ---------------------------------------------------------------------------
 
@@ -199,11 +383,33 @@ function summaryBatches_(startDate, endDate, preparation) {
     avgByPreparation[p] = openDays > 0 ? round2_(totals[p] / openDays) : '';
   });
 
+  // Ingredient cost of what was made. Valued at the prices in force at the end of
+  // the range, so an old range is not restated at today's prices.
+  var model = batchCostModel_(
+    readRecords_(SHEETS.BAZAR),
+    readRecords_(SHEETS.OPENING_STOCK),
+    openingCutOff_(),
+    end || last
+  );
+
+  var costByPreparation = {};
+  var costPerOpenDay = {};
+  PREPARATIONS.forEach(function (p) {
+    costByPreparation[p] = round2_(totals[p] * model.perBatch[p]);
+    costPerOpenDay[p] = openDays > 0
+      ? round2_(costByPreparation[p] / openDays) : '';
+  });
+
   return {
     range: { start: start ? dateKey_(start) : '', end: end ? dateKey_(end) : '' },
     preparation: filter,
     totals: totals,
     avgByPreparation: avgByPreparation,
+    costPerBatch: model.perBatch,
+    costByPreparation: costByPreparation,
+    costPerOpenDay: costPerOpenDay,
+    unpricedIngredients: model.unpriced,
+    costComparison: summaryCostComparison_(startDate, endDate, filter),
     recordCount: recordCount,
     firstDate: first ? dateKey_(first) : '',
     lastDate: last ? dateKey_(last) : '',

@@ -37,6 +37,7 @@
     button.primary:hover { background: #1765cc; }
     button.chip { padding: 4px 9px; font-size: 11px; border-radius: 12px; }
     button.chip:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
+    button.chip.active { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; font-weight: 600; }
     .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
 
     /* Summary tiles */
@@ -56,6 +57,8 @@
     td.n, th.n { text-align: right; }
     tr:hover td { background: #f8f9fa; }
     .neg { color: #a50e0e; font-weight: 600; }
+    .up { color: #a50e0e; font-weight: 600; }
+    .down { color: #137333; font-weight: 600; }
 
     .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
            font-size: 12px; white-space: pre-wrap; }
@@ -137,6 +140,7 @@
 <script>
   var OPTIONS = null;
   var currentTab = 'batches';
+  var activePreset = { batch: 'all', bazar: 'all' };
 
   function $(id) { return document.getElementById(id); }
   function money(n) {
@@ -186,6 +190,10 @@
     $('stockItem').addEventListener('change', function () { runTab('stock'); });
     $('stockAsOf').addEventListener('change', function () { runTab('stock'); });
     $('batchPrep').addEventListener('change', function () { runTab('batch'); });
+    $('batchFrom').addEventListener('change', function () { clearPreset('batch'); runTab('batch'); });
+    $('batchTo').addEventListener('change', function () { clearPreset('batch'); runTab('batch'); });
+    $('bazarFrom').addEventListener('change', function () { clearPreset('bazar'); });
+    $('bazarTo').addEventListener('change', function () { clearPreset('bazar'); });
 
     google.script.run
       .withSuccessHandler(function (opts) {
@@ -212,9 +220,11 @@
         b.type = 'button';
         b.className = 'chip';
         b.textContent = p.label;
+        b.setAttribute('data-preset', p.key);
         b.addEventListener('click', function () { applyPreset(pair[1], p.key); });
         box.appendChild(b);
       });
+      setPresetActive(pair[1], 'all');
     });
 
     // Default range: the whole data span.
@@ -276,7 +286,25 @@
     });
   }
 
+  function setPresetActive(which, key) {
+    activePreset[which] = key;
+    var box = $(which + 'Presets');
+    if (!box) return;
+    Array.prototype.forEach.call(box.children, function (b) {
+      var on = b.getAttribute('data-preset') === key;
+      b.className = 'chip' + (on ? ' active' : '');
+    });
+  }
+
+  // Typing a date by hand means no preset describes the range any more.
+  function clearPreset(which) {
+    if (!activePreset[which]) return;
+    setPresetActive(which, '');
+  }
+
   function applyPreset(which, key) {
+    setPresetActive(which, key);
+
     if (key === 'all') {
       $(which + 'From').value = OPTIONS.dataStart || OPTIONS.today;
       $(which + 'To').value = OPTIONS.dataEnd || OPTIONS.today;
@@ -341,61 +369,107 @@
     var order = ['Batter', 'Nutella Mix', 'Cream', 'White Mix', 'Cheese'];
     var selected = d.preparation || '';
     var cols = selected ? [selected] : order;
+    var comparison = renderCostComparison(d.costComparison);
 
     if (!d.recordCount) {
       $('batchOut').innerHTML = '<div class="muted">No ' +
-        (selected ? esc(selected) + ' ' : '') + 'batches recorded in this range.</div>';
+        (selected ? esc(selected) + ' ' : '') + 'batches recorded in this range.</div>' +
+        comparison;
       return;
     }
 
     var tiles = '<div class="tiles">' +
-      tile('Records', d.recordCount) +
-      tile('Open days', d.openDays) +
       tile('Calendar days', d.calendarDays) +
+      tile('Open days', d.openDays) +
       tile('Closed days', d.closedDays) +
+      tile('Days Record', d.recordCount) +
       '</div>';
+
+    var warn = '';
+    if (d.unpricedIngredients && d.unpricedIngredients.length) {
+      warn = '<div class="muted" style="margin-bottom:9px">Cost leaves out ingredients ' +
+        'with no purchase history yet: ' + esc(d.unpricedIngredients.join(', ')) + '.</div>';
+    }
 
     var prepRows = '';
     cols.forEach(function (p) {
-      prepRows += '<tr><td>' + esc(p) + '</td><td class="n">' +
-        num(d.totals[p]) + '</td></tr>';
+      prepRows += '<tr><td>' + esc(p) + '</td>' +
+        '<td class="n">' + num(d.totals[p]) + '</td>' +
+        '<td class="n">' + money(d.costPerBatch[p]) + '</td>' +
+        '<td class="n">' + money(d.costByPreparation[p]) + '</td></tr>';
     });
 
     var preps = '<div class="section-title">By preparation</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>Preparation</th>' +
-      '<th class="n">Batches</th></tr></thead><tbody>' + prepRows + '</tbody></table></div>';
+      '<th class="n">Batches</th><th class="n">Avg cost</th><th class="n">Cost</th>' +
+      '</tr></thead><tbody>' + prepRows + '</tbody></table></div>';
 
     var avgRows = '';
     cols.forEach(function (p) {
-      avgRows += '<tr><td>' + esc(p) + '</td><td class="n">' +
-        num(d.avgByPreparation[p]) + '</td></tr>';
+      avgRows += '<tr><td>' + esc(p) + '</td>' +
+        '<td class="n">' + num(d.avgByPreparation[p]) + '</td>' +
+        '<td class="n">' + money(d.costPerOpenDay[p]) + '</td></tr>';
     });
 
     var avgs = '<div class="section-title">Average per open day</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>Preparation</th>' +
-      '<th class="n">Avg / open day</th></tr></thead><tbody>' + avgRows + '</tbody></table></div>';
+      '<th class="n">Avg / open day</th><th class="n">Cost / open day</th>' +
+      '</tr></thead><tbody>' + avgRows + '</tbody></table></div>';
 
-    var dayRows = '';
-    d.perDay.slice(0, 60).forEach(function (row) {
-      var cells = '';
-      cols.forEach(function (p) {
-        var v = row.values[p];
-        cells += '<td class="n">' + (v ? num(v) : '') + '</td>';
+    // All time is already the Batches sheet itself, so the per-day list would just
+    // repeat it. It is the maintenance view for a narrower range.
+    var perDay = '';
+    if (activePreset.batch !== 'all') {
+      var dayRows = '';
+      d.perDay.slice(0, 60).forEach(function (row) {
+        var cells = '';
+        cols.forEach(function (p) {
+          var v = row.values[p];
+          cells += '<td class="n">' + (v ? num(v) : '') + '</td>';
+        });
+        dayRows += '<tr><td>' + esc(row.date) + '</td><td>' + esc(row.weekday) + '</td>' +
+          cells + '</tr>';
       });
-      dayRows += '<tr><td>' + esc(row.date) + '</td><td>' + esc(row.weekday) + '</td>' +
-        cells + '</tr>';
+
+      var head = '<tr><th>Date</th><th>Day</th>';
+      cols.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
+      head += '</tr>';
+
+      perDay = '<div class="section-title">Per day' +
+        (d.perDay.length > 60 ? ' (newest 60)' : '') + '</div>' +
+        '<div class="tbl-wrap"><table><thead>' + head + '</thead><tbody>' +
+        dayRows + '</tbody></table></div>';
+    }
+
+    $('batchOut').innerHTML = tiles + warn + preps + avgs + perDay + comparison;
+  }
+
+  function renderCostComparison(cc) {
+    if (!cc || !cc.rows || !cc.rows.length) return '';
+
+    var rows = '';
+    cc.rows.forEach(function (r) {
+      var delta;
+      if (r.deltaPct === '' || r.deltaPct === null || r.deltaPct === undefined) {
+        delta = '<td class="n muted">—</td>';
+      } else if (r.deltaPct > 0) {
+        delta = '<td class="n up">▲ ' + num(Math.abs(r.deltaPct)) + '%</td>';
+      } else if (r.deltaPct < 0) {
+        delta = '<td class="n down">▼ ' + num(Math.abs(r.deltaPct)) + '%</td>';
+      } else {
+        delta = '<td class="n muted">0%</td>';
+      }
+
+      rows += '<tr><td>' + esc(r.label) + '</td>' +
+        '<td class="n">' + num(r.batches) + '</td>' +
+        '<td class="n">' + money(r.avgCost) + '</td>' + delta + '</tr>';
     });
 
-    var head = '<tr><th>Date</th><th>Day</th>';
-    cols.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
-    head += '</tr>';
-
-    var perDay = '<div class="section-title">Per day' +
-      (d.perDay.length > 60 ? ' (newest 60)' : '') + '</div>' +
-      '<div class="tbl-wrap"><table><thead>' + head + '</thead><tbody>' +
-      dayRows + '</tbody></table></div>';
-
-    $('batchOut').innerHTML = tiles + preps + avgs + perDay;
+    return '<div class="section-title">Cost comparison</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Date range</th>' +
+      '<th class="n">Batches</th><th class="n">Avg cost</th>' +
+      '<th class="n">vs all time</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="muted">▲ red means costlier than All time, ▼ green means cheaper.</div>';
   }
 
   // ---------- Bazar ----------
