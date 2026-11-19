@@ -32,18 +32,23 @@ shortcut describes that range any more.
 ## Batches tab
 
 - **Preparation** — dropdown to narrow the whole tab to one recipe
+- **Total Avg Cost** — green tile: the one-batch cost of every recipe that was
+  made in the range, added together. With a preparation selected it becomes
+  **Avg `recipe` Cost**.
 - **Calendar days / Open days / Closed days / Days Record**
 - **By preparation** — Batter, Nutella Mix, Cream, White Mix, Cheese, each with
   its batch count, **average cost per batch** and **total cost** for the range
 - **Average per open day** — batches per open day and cost per open day, per recipe
 - **Per day** — every batch record, newest first, with only the columns in view
 - **Cost comparison** — average batch cost for each preset range, with an arrow
-  against All time
+  against All time, and a **C/OD** switch for cost per open day
 
-There is deliberately **no grand total and no single average**. Batches are not
-alike — one Batter batch and one Cream batch are different things — so a combined
-figure answers no real question. Each recipe carries its own total, its own
-average per open day and its own cost.
+There is deliberately **no grand total of batches and no single blended average**.
+Batches are not alike — one Batter batch and one Cream batch are different things
+— so a combined figure answers no real question. Each recipe carries its own
+total, its own average per open day and its own cost. **Total Avg Cost** is not
+the range's total spend; it is one batch of each recipe that was made, added
+together.
 
 ### How a batch cost is worked out
 
@@ -78,6 +83,16 @@ that range) and **vs All time**. The All time row has no arrow — it is the
 baseline. ▲ red means the range cost more per batch than All time; ▼ green means
 it cost less. When a preparation is selected, both the tables and the comparison
 follow that one recipe, so "is Batter getting dearer?" has a direct answer.
+
+The **C/OD** checkbox at the right of the heading swaps the value column for
+**cost per open day** (that range's batch cost ÷ its open days), judged against
+the all-time cost per open day. Untick it to return to average cost per batch.
+Batches, date ranges and arrows stay the same either way.
+
+**A recipe that was not made in the range is left out** of By preparation,
+Average per open day and Total Avg Cost. White Mix and Cheese therefore appear
+only in ranges where they were actually used; a range with no Cream shows no
+Cream row. The same recipe set drives the per-day columns.
 
 When a preparation is chosen, the tab narrows to the days that produced it: the
 record count, the totals, the average and the per-day columns all follow that one

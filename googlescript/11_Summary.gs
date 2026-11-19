@@ -260,6 +260,9 @@ function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
 
   var rows = definitions.map(function (def) {
     var stats = batchTotalsFromRows_(batchRows, def.range.start, def.range.end);
+    var breakdown = (def.range.start && def.range.end)
+      ? openDayBreakdown_(def.range.start, def.range.end) : null;
+    var openDays = breakdown ? breakdown.openDays : 0;
 
     var batches = 0;
     PREPARATIONS.forEach(function (p) {
@@ -268,7 +271,8 @@ function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
     });
 
     // An empty range has nothing to price, and building the model would only
-    // produce a zero that reads like a real figure.
+    // produce a zero that reads like a real figure. Cost per open day is left
+    // blank too: no batches means no production cost, not a cheap day.
     if (!batches) {
       return {
         key: def.key,
@@ -277,7 +281,9 @@ function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
         end: def.range.end || '',
         batches: 0,
         cost: 0,
-        avgCost: ''
+        avgCost: '',
+        openDays: openDays,
+        costPerOpenDay: ''
       };
     }
 
@@ -296,16 +302,25 @@ function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
       end: def.range.end || '',
       batches: round2_(batches),
       cost: round2_(cost),
-      avgCost: round2_(cost / batches)
+      avgCost: round2_(cost / batches),
+      openDays: openDays,
+      costPerOpenDay: openDays > 0 ? round2_(cost / openDays) : ''
     };
   });
 
-  // Every row is judged against the all-time average, which is the stable
+  // Every row is judged against the all-time figure, which is the stable
   // baseline; comparing adjacent rows would make the arrows jump for no reason.
   var baseline = rows[rows.length - 1];
   rows.forEach(function (r) {
-    if (r.key === 'all' || r.avgCost === '' || baseline.avgCost === '') return;
-    r.deltaPct = round2_(((r.avgCost - baseline.avgCost) / baseline.avgCost) * 100);
+    if (r.key === 'all') return;
+
+    if (r.avgCost !== '' && baseline.avgCost !== '') {
+      r.deltaPct = round2_(((r.avgCost - baseline.avgCost) / baseline.avgCost) * 100);
+    }
+    if (r.costPerOpenDay !== '' && baseline.costPerOpenDay !== '') {
+      r.deltaCostPerOpenDayPct = round2_(
+        ((r.costPerOpenDay - baseline.costPerOpenDay) / baseline.costPerOpenDay) * 100);
+    }
   });
 
   return { preparation: filter, rows: rows };

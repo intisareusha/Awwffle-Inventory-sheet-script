@@ -68,6 +68,13 @@
     .hidden { display: none !important; }
     .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
       text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
+    .section-title-row { display: flex; align-items: center; justify-content: space-between;
+      margin: 12px 0 5px; }
+    .section-title-row .section-title { margin: 0; }
+    .cmp-toggle { display: flex; align-items: center; gap: 4px; margin: 0;
+      font-size: 11px; font-weight: 500; color: #5f6368; text-transform: none;
+      letter-spacing: 0; cursor: pointer; }
+    .cmp-toggle input { width: auto; margin: 0; padding: 0; border: none; }
   </style>
 </head>
 <body>
@@ -141,6 +148,7 @@
   var OPTIONS = null;
   var currentTab = 'batches';
   var activePreset = { batch: 'all', bazar: 'all' };
+  var COST_METRIC = 'avg';   // 'avg' = avg cost per batch, 'perDay' = cost / open day
 
   function $(id) { return document.getElementById(id); }
   function money(n) {
@@ -369,16 +377,30 @@
     var order = ['Batter', 'Nutella Mix', 'Cream', 'White Mix', 'Cheese'];
     var selected = d.preparation || '';
     var cols = selected ? [selected] : order;
+
+    // A recipe not made in this range has no cost and no average to show, so the
+    // tables drop it entirely instead of printing a column of zeros.
+    var shown = cols.filter(function (p) { return d.totals[p] > 0; });
+    if (!shown.length) shown = cols;
+
     var comparison = renderCostComparison(d.costComparison);
 
     if (!d.recordCount) {
       $('batchOut').innerHTML = '<div class="muted">No ' +
         (selected ? esc(selected) + ' ' : '') + 'batches recorded in this range.</div>' +
         comparison;
+      bindCostToggle(d);
       return;
     }
 
+    var totalAvgCost = 0;
+    shown.forEach(function (p) { totalAvgCost += d.costPerBatch[p] || 0; });
+
+    var costLabel = selected ? 'Avg ' + selected + ' Cost' : 'Total Avg Cost';
+
     var tiles = '<div class="tiles">' +
+      '<div class="tile money wide"><div class="k">' + esc(costLabel) + '</div>' +
+        '<div class="v">' + money(totalAvgCost) + '</div></div>' +
       tile('Calendar days', d.calendarDays) +
       tile('Open days', d.openDays) +
       tile('Closed days', d.closedDays) +
@@ -392,7 +414,7 @@
     }
 
     var prepRows = '';
-    cols.forEach(function (p) {
+    shown.forEach(function (p) {
       prepRows += '<tr><td>' + esc(p) + '</td>' +
         '<td class="n">' + num(d.totals[p]) + '</td>' +
         '<td class="n">' + money(d.costPerBatch[p]) + '</td>' +
@@ -405,7 +427,7 @@
       '</tr></thead><tbody>' + prepRows + '</tbody></table></div>';
 
     var avgRows = '';
-    cols.forEach(function (p) {
+    shown.forEach(function (p) {
       avgRows += '<tr><td>' + esc(p) + '</td>' +
         '<td class="n">' + num(d.avgByPreparation[p]) + '</td>' +
         '<td class="n">' + money(d.costPerOpenDay[p]) + '</td></tr>';
@@ -423,7 +445,7 @@
       var dayRows = '';
       d.perDay.slice(0, 60).forEach(function (row) {
         var cells = '';
-        cols.forEach(function (p) {
+        shown.forEach(function (p) {
           var v = row.values[p];
           cells += '<td class="n">' + (v ? num(v) : '') + '</td>';
         });
@@ -432,7 +454,7 @@
       });
 
       var head = '<tr><th>Date</th><th>Day</th>';
-      cols.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
+      shown.forEach(function (p) { head += '<th class="n">' + esc(p) + '</th>'; });
       head += '</tr>';
 
       perDay = '<div class="section-title">Per day' +
@@ -442,34 +464,54 @@
     }
 
     $('batchOut').innerHTML = tiles + warn + preps + avgs + perDay + comparison;
+    bindCostToggle(d);
+  }
+
+  function bindCostToggle(d) {
+    var cb = $('cmpPerDay');
+    if (!cb) return;
+    cb.addEventListener('change', function () {
+      COST_METRIC = cb.checked ? 'perDay' : 'avg';
+      renderBatches(d);
+    });
   }
 
   function renderCostComparison(cc) {
     if (!cc || !cc.rows || !cc.rows.length) return '';
 
+    var perDay = COST_METRIC === 'perDay';
     var rows = '';
+
     cc.rows.forEach(function (r) {
+      var value = perDay ? r.costPerOpenDay : r.avgCost;
+      var deltaPct = perDay ? r.deltaCostPerOpenDayPct : r.deltaPct;
+
       var delta;
-      if (r.deltaPct === '' || r.deltaPct === null || r.deltaPct === undefined) {
+      if (deltaPct === '' || deltaPct === null || deltaPct === undefined) {
         delta = '<td class="n muted">—</td>';
-      } else if (r.deltaPct > 0) {
-        delta = '<td class="n up">▲ ' + num(Math.abs(r.deltaPct)) + '%</td>';
-      } else if (r.deltaPct < 0) {
-        delta = '<td class="n down">▼ ' + num(Math.abs(r.deltaPct)) + '%</td>';
+      } else if (deltaPct > 0) {
+        delta = '<td class="n up">▲ ' + num(Math.abs(deltaPct)) + '%</td>';
+      } else if (deltaPct < 0) {
+        delta = '<td class="n down">▼ ' + num(Math.abs(deltaPct)) + '%</td>';
       } else {
         delta = '<td class="n muted">0%</td>';
       }
 
       rows += '<tr><td>' + esc(r.label) + '</td>' +
         '<td class="n">' + num(r.batches) + '</td>' +
-        '<td class="n">' + money(r.avgCost) + '</td>' + delta + '</tr>';
+        '<td class="n">' + money(value) + '</td>' + delta + '</tr>';
     });
 
-    return '<div class="section-title">Cost comparison</div>' +
+    return '<div class="section-title-row">' +
+        '<span class="section-title">Cost comparison</span>' +
+        '<label class="cmp-toggle"><input type="checkbox" id="cmpPerDay"' +
+          (perDay ? ' checked' : '') + '> C/OD</label>' +
+      '</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>Date range</th>' +
-      '<th class="n">Batches</th><th class="n">Avg cost</th>' +
+      '<th class="n">Batches</th><th class="n">' + (perDay ? 'C/OD' : 'Avg cost') + '</th>' +
       '<th class="n">vs all time</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<div class="muted">▲ red means costlier than All time, ▼ green means cheaper.</div>';
+      '<div class="muted">' + (perDay ? 'C/OD = cost per open day. ' : '') +
+      '▲ red means higher than All time, ▼ green means lower.</div>';
   }
 
   // ---------- Bazar ----------
