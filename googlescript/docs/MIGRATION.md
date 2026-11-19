@@ -144,6 +144,13 @@ If you do force a second run, it is safe: every worker checks what is already
 imported and skips duplicates. Verified — running twice leaves all row counts
 unchanged.
 
+**One deliberate exception.** The 10 October Milk purchase is maintained by hand
+(you corrected it to 25 L). If Bazar already has a Milk row on 10 October, the
+importer skips that source line instead of adding a second one — without that
+guard, deleting the duplicate and re-running would bring it straight back and
+change Milk stock. The skip is listed in the reconciliation report like every
+other correction.
+
 To deliberately start over:
 
 1. Blank `migration_completed_at` in **Settings**.

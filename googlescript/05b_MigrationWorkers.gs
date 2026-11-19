@@ -119,6 +119,16 @@ function migrateBazar_(sheet, recon, corrections) {
   // Re-run protection: source row numbers already imported.
   var alreadyImported = importedSourceRows_(SHEETS.BAZAR);
 
+  // The owner corrected the 10 Oct Milk purchase by hand. If Bazar already has a
+  // Milk row on that date, the source row must never be imported a second time —
+  // deleting the duplicate and re-running would otherwise bring it straight back.
+  var milkOnSetupDate = {};
+  readRecords_(SHEETS.BAZAR).forEach(function (r) {
+    if (String(r['Item']) !== 'Milk') return;
+    var k = dateKey_(r['Date']);
+    if (k === CORRECTIONS.MILK_SETUP_DATE) milkOnSetupDate[k] = true;
+  });
+
   var monthTotals = {};
   var expenseTypeCounts = {};
   var aliasHits = [];
@@ -177,6 +187,11 @@ function migrateBazar_(sheet, recon, corrections) {
       });
     }
 
+    // The 10 Oct Milk line is the one purchase the owner maintains by hand.
+    // A re-run must not create a second one beside her corrected row.
+    var isMilkSetupRow = !!date && itemName === 'Milk' &&
+      dateKey_(date) === CORRECTIONS.MILK_SETUP_DATE;
+
     // --- Amount is always derived, never trusted (§5.2) ---
     var derivedAmount = null;
     if (expenseType === EXPENSE_TYPE_INVENTORY && qty !== null && rate !== null) {
@@ -204,6 +219,20 @@ function migrateBazar_(sheet, recon, corrections) {
     expenseTypeCounts[expenseType] = (expenseTypeCounts[expenseType] || 0) + 1;
 
     if (isNewRow) {
+      if (isMilkSetupRow && milkOnSetupDate[CORRECTIONS.MILK_SETUP_DATE]) {
+        skipped++;
+        corrections.push({
+          section: 'Bazar',
+          check: 'Row ' + r._row + ' Milk on ' + CORRECTIONS.MILK_SETUP_DATE,
+          from: 'source row would import ' + qty + ' ' + correctedUnit,
+          to: 'skipped — a Milk row already exists on that date',
+          reason: 'The owner corrected this purchase by hand. Importing it again ' +
+                  'would duplicate the setup buy and distort Milk stock.',
+          affectsValues: true
+        });
+        return;
+      }
+
       rows.push([
         newId_('BAZAR'),
         date,

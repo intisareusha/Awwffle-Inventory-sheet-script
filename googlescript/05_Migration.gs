@@ -24,7 +24,11 @@ var CORRECTIONS = {
   // Bazar row 73 records Milk as 6 pieces; every other milk purchase is in litres.
   MILK_ROW: 73,
   MILK_FROM_UNIT: 'p',
-  MILK_TO_UNIT: 'l'
+  MILK_TO_UNIT: 'l',
+
+  // The 10 October setup purchase. The owner corrected its quantity to 25 L by
+  // hand, so a re-run must never add a second (or stale) Milk line on that date.
+  MILK_SETUP_DATE: '2026-10-10'
 };
 
 /** Expected totals — README §14. Migration must reproduce these. */

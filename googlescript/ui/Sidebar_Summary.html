@@ -394,13 +394,21 @@
     }
 
     var totalAvgCost = 0;
-    shown.forEach(function (p) { totalAvgCost += d.costPerBatch[p] || 0; });
+    var totalCostPerOpenDay = 0;
+    shown.forEach(function (p) {
+      totalAvgCost += d.costPerBatch[p] || 0;
+      totalCostPerOpenDay += d.costPerOpenDay[p] || 0;
+    });
 
     var costLabel = selected ? 'Avg ' + selected + ' Cost' : 'Total Avg Cost';
+    var perDayLabel = selected
+      ? selected + ' Cost / Open Day' : 'Total Cost / OD';
 
     var tiles = '<div class="tiles">' +
-      '<div class="tile money wide"><div class="k">' + esc(costLabel) + '</div>' +
+      '<div class="tile money"><div class="k">' + esc(costLabel) + '</div>' +
         '<div class="v">' + money(totalAvgCost) + '</div></div>' +
+      '<div class="tile money"><div class="k">' + esc(perDayLabel) + '</div>' +
+        '<div class="v">' + (d.openDays > 0 ? money(totalCostPerOpenDay) : '—') + '</div></div>' +
       tile('Calendar days', d.calendarDays) +
       tile('Open days', d.openDays) +
       tile('Closed days', d.closedDays) +

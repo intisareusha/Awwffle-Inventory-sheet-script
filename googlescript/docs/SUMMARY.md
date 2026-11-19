@@ -32,9 +32,10 @@ shortcut describes that range any more.
 ## Batches tab
 
 - **Preparation** — dropdown to narrow the whole tab to one recipe
-- **Total Avg Cost** — green tile: the one-batch cost of every recipe that was
-  made in the range, added together. With a preparation selected it becomes
-  **Avg `recipe` Cost**.
+- **Total Avg Cost / Total Cost / Open Days** — two green tiles side by side:
+  the one-batch cost of every recipe made in the range, and the same recipes'
+  total cost spread over the range's open days. With a preparation selected they
+  become **Avg `recipe` Cost** and **`recipe` Cost / Open Day**.
 - **Calendar days / Open days / Closed days / Days Record**
 - **By preparation** — Batter, Nutella Mix, Cream, White Mix, Cheese, each with
   its batch count, **average cost per batch** and **total cost** for the range
