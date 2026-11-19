@@ -110,9 +110,23 @@ entry; a per-day list makes "12 Batter on the 3rd" obvious.
 
 - **Total spent**, line count, invoice count
 - **Avg per open day**
+- **Expense type / Item / Invoice** filters
 - **By expense type** — Inventory purchase / Salary / Courier / Maintenance / Other
 - **By item** — amount, plus quantity in its own unit
 - **By invoice** — lines per `Ref` and invoice total
+
+### Filters
+
+| Filter | Effect |
+|---|---|
+| Expense type | only that expense type |
+| Item | only that item or expense name; the list follows the chosen type |
+| Invoice | only lines sharing that `Ref` |
+
+All three combine (AND) and re-run immediately — no Apply button. Each figure on
+the tab follows the filtered set: total, line count, per-open-day average,
+invoice count and all three tables. The active filters are shown above the
+tables, and clearing a dropdown back to "(all …)" removes that filter.
 
 This is where the two-field split pays off: "how much was inventory vs operating
 cost" is now a single figure rather than something to work out by hand.

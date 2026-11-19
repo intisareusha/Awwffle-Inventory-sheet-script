@@ -110,6 +110,13 @@
       <div><label>From</label><input type="date" id="bazarFrom"></div>
       <div><label>To</label><input type="date" id="bazarTo"></div>
     </div>
+    <div class="grid2 row">
+      <div><label>Expense type</label><select id="bazarType"></select></div>
+      <div><label>Item</label><select id="bazarItem"></select></div>
+    </div>
+    <div class="row">
+      <label>Invoice</label><select id="bazarInvoice"></select>
+    </div>
     <button type="button" class="primary" id="bazarRun" style="width:100%">Show spending</button>
     <div id="bazarOut" style="margin-top:10px"></div>
   </div>
@@ -200,8 +207,11 @@
     $('batchPrep').addEventListener('change', function () { runTab('batch'); });
     $('batchFrom').addEventListener('change', function () { clearPreset('batch'); runTab('batch'); });
     $('batchTo').addEventListener('change', function () { clearPreset('batch'); runTab('batch'); });
-    $('bazarFrom').addEventListener('change', function () { clearPreset('bazar'); });
-    $('bazarTo').addEventListener('change', function () { clearPreset('bazar'); });
+    $('bazarFrom').addEventListener('change', function () { clearPreset('bazar'); runTab('bazar'); });
+    $('bazarTo').addEventListener('change', function () { clearPreset('bazar'); runTab('bazar'); });
+    $('bazarType').addEventListener('change', function () { populateBazarItems(); runTab('bazar'); });
+    $('bazarItem').addEventListener('change', function () { runTab('bazar'); });
+    $('bazarInvoice').addEventListener('change', function () { runTab('bazar'); });
 
     google.script.run
       .withSuccessHandler(function (opts) {
@@ -253,6 +263,30 @@
       prep.appendChild(o);
     });
 
+    // Bazar filters: expense type, item (narrowed by type), invoice.
+    var bt = $('bazarType');
+    var allBt = document.createElement('option');
+    allBt.value = ''; allBt.textContent = '(all expense types)';
+    bt.appendChild(allBt);
+    (OPTIONS.bazarTypes || []).forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      bt.appendChild(o);
+    });
+
+    populateBazarItems();
+
+    var bi = $('bazarInvoice');
+    var allInv = document.createElement('option');
+    allInv.value = ''; allInv.textContent = '(all invoices)';
+    bi.appendChild(allInv);
+    (OPTIONS.bazarInvoices || []).forEach(function (x) {
+      var o = document.createElement('option');
+      o.value = x.ref;
+      o.textContent = x.ref + ' · ' + x.date + ' · ' + money(x.total);
+      bi.appendChild(o);
+    });
+
     // Group and population selects
     var g = $('stockGroup');
     var allG = document.createElement('option');
@@ -292,6 +326,32 @@
       o.value = it.name; o.textContent = it.name;
       sel.appendChild(o);
     });
+  }
+
+  // The Bazar item list follows the chosen expense type, so picking
+  // "Inventory purchase" never offers Salary or Courier names.
+  function populateBazarItems() {
+    var sel = $('bazarItem');
+    var type = $('bazarType').value;
+    var previous = sel.value;
+
+    sel.innerHTML = '';
+    var all = document.createElement('option');
+    all.value = ''; all.textContent = '(all items)';
+    sel.appendChild(all);
+
+    (OPTIONS.bazarItems || []).forEach(function (it) {
+      if (type && it.type !== type) return;
+      var o = document.createElement('option');
+      o.value = it.name; o.textContent = it.name;
+      sel.appendChild(o);
+    });
+
+    var stillThere = false;
+    Array.prototype.forEach.call(sel.options, function (o) {
+      if (o.value === previous) stillThere = true;
+    });
+    sel.value = stillThere ? previous : '';
   }
 
   function setPresetActive(which, key) {
@@ -348,7 +408,11 @@
       google.script.run
         .withSuccessHandler(renderBazar)
         .withFailureHandler(fail('bazar'))
-        .summaryBazar($('bazarFrom').value, $('bazarTo').value);
+        .summaryBazar($('bazarFrom').value, $('bazarTo').value, {
+          type: $('bazarType').value,
+          item: $('bazarItem').value,
+          invoice: $('bazarInvoice').value
+        });
     } else {
       $('stockOut').innerHTML = '<div class="muted">Loading…</div>';
       google.script.run
@@ -524,8 +588,22 @@
 
   // ---------- Bazar ----------
   function renderBazar(d) {
+    var f = d.filters || {};
+    var active = [];
+    if (f.type) active.push('Type: ' + f.type);
+    if (f.item) active.push('Item: ' + f.item);
+    if (f.invoice) active.push('Invoice: ' + f.invoice);
+
+    var filterLine = active.length
+      ? '<div class="muted" style="margin-bottom:9px">Filtered — ' +
+        esc(active.join(' · ')) + '</div>'
+      : '';
+
     if (!d.count) {
-      $('bazarOut').innerHTML = '<div class="muted">No purchases recorded in this range.</div>';
+      $('bazarOut').innerHTML = '<div class="muted">' +
+        (active.length ? 'No purchases match these filters.'
+                       : 'No purchases recorded in this range.') +
+        '</div>' + filterLine;
       return;
     }
 
@@ -566,7 +644,7 @@
       '<th class="n">Lines</th><th class="n">Amount</th></tr></thead><tbody>' +
       invRows + '</tbody></table></div>';
 
-    $('bazarOut').innerHTML = tiles + byType + byItem + byInvoice;
+    $('bazarOut').innerHTML = tiles + filterLine + byType + byItem + byInvoice;
   }
 
   // ---------- Stock ----------

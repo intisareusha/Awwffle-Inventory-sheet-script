@@ -31,9 +31,9 @@ function summaryBatches(startDate, endDate, preparation) {
   return summaryBatches_(startDate, endDate, preparation);
 }
 
-/** Bazar summary for a date range. */
-function summaryBazar(startDate, endDate) {
-  return summaryBazar_(startDate, endDate);
+/** Bazar summary for a date range, with optional item / type / invoice filters. */
+function summaryBazar(startDate, endDate, filters) {
+  return summaryBazar_(startDate, endDate, filters);
 }
 
 /** Stock position at a date, with filters applied. */
@@ -59,9 +59,31 @@ function getSummaryOptions_() {
     return toDate_(r['Date']);
   }).filter(Boolean);
 
-  var bazarDates = readRecords_(SHEETS.BAZAR).map(function (r) {
+  // Read Bazar once: it supplies the date extent and all three filter lists.
+  var bazarRows = readRecords_(SHEETS.BAZAR);
+  var bazarDates = bazarRows.map(function (r) {
     return toDate_(r['Date']);
   }).filter(Boolean);
+
+  var bazarTypes = {};
+  var bazarItems = {};
+  var invoices = {};
+
+  bazarRows.forEach(function (r) {
+    var type = String(r['Expense Type'] || '');
+    var name = String(r['Item'] || r['Expense Name'] || '');
+    var ref = String(r['Ref'] || '').trim();
+
+    if (type) bazarTypes[type] = true;
+    if (name) bazarItems[type + '|' + name] = { name: name, type: type };
+
+    if (!ref) return;
+    if (!invoices[ref]) {
+      invoices[ref] = { ref: ref, date: dateKey_(r['Date']), lines: 0, total: 0 };
+    }
+    invoices[ref].lines++;
+    invoices[ref].total += toNumber_(r['Amount']) || 0;
+  });
 
   var all = posDates.concat(batchDates, bazarDates).sort(function (a, b) { return a - b; });
 
@@ -76,6 +98,18 @@ function getSummaryOptions_() {
   var groups = {};
   items.forEach(function (i) { groups[i.group] = true; });
 
+  var bazarItemList = Object.keys(bazarItems).map(function (k) { return bazarItems[k]; })
+    .sort(function (a, b) {
+      if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+      return a.name < b.name ? -1 : 1;
+    });
+
+  var bazarInvoiceList = Object.keys(invoices).map(function (k) { return invoices[k]; })
+    .sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;   // newest first
+      return a.ref < b.ref ? -1 : 1;
+    });
+
   return {
     today: dateKey_(today),
     dataStart: all.length ? dateKey_(all[0]) : '',
@@ -85,6 +119,9 @@ function getSummaryOptions_() {
     groups: Object.keys(groups).sort(),
     preparations: PREPARATIONS.slice(),
     populations: [POPULATION.RECIPE, POPULATION.MANUAL, POPULATION.RESALE],
+    bazarTypes: Object.keys(bazarTypes).sort(),
+    bazarItems: bazarItemList,
+    bazarInvoices: bazarInvoiceList,
     presets: [
       { key: 'all', label: 'All time' },
       { key: 'thisMonth', label: 'This month' },
@@ -444,12 +481,21 @@ var WEEKDAY_NAMES_ = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /**
  * Spending over a range: by expense type, by item, by month, and by invoice.
  *
+ * Optional filters narrow the whole view the same way the batch preparation
+ * filter does: type, item name, or invoice ref. They combine (AND), and every
+ * figure — totals, tables, averages, invoice count — follows the filtered set.
+ *
  * Quantity is reported alongside money but never summed across items — grams and
  * pieces cannot be added. Only the money column totals meaningfully.
  */
-function summaryBazar_(startDate, endDate) {
+function summaryBazar_(startDate, endDate, filters) {
   var start = toDate_(startDate);
   var end = toDate_(endDate);
+
+  var f = filters || {};
+  var wantType = String(f.type || '');
+  var wantItem = String(f.item || '');
+  var wantInvoice = String(f.invoice || '');
 
   var total = 0;
   var count = 0;
@@ -473,6 +519,10 @@ function summaryBazar_(startDate, endDate) {
     var status = String(r['Status'] || 'Paid');
     var ref = String(r['Ref'] || '').trim();
     var month = dateKey_(d).substring(0, 7);
+
+    if (wantType && type !== wantType) return;
+    if (wantItem && name !== wantItem) return;
+    if (wantInvoice && ref !== wantInvoice) return;
 
     total += amount;
     count++;
@@ -521,6 +571,7 @@ function summaryBazar_(startDate, endDate) {
 
   return {
     range: { start: start ? dateKey_(start) : '', end: end ? dateKey_(end) : '' },
+    filters: { type: wantType, item: wantItem, invoice: wantInvoice },
     total: round2_(total),
     count: count,
     byType: byType,
