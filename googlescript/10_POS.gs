@@ -57,6 +57,11 @@ function savePosInvoice(payload) {
   return savePosInvoice_(payload);
 }
 
+/** Removes the whole snapshot for a date (and its daily invoice), then recascades. */
+function deletePosSnapshot(dateString) {
+  return deletePosSnapshot_(dateString);
+}
+
 /** Daily Waffles: units sold per item and totals over a date range. */
 function getDailyWaffles(startDate, endDate, filters) {
   return getDailyWaffles_(startDate, endDate, filters);
@@ -233,6 +238,9 @@ function parsePosMoney_(v) {
 
 /** Everything the sidebar needs to render its first screen. */
 function getPosEntryOptions_() {
+  // Undo any Sale price that a paste copied from Cost (see repairPosSalePrices_).
+  repairPosSalePrices_();
+
   var products = posProducts_();
   if (!products.length) {
     throw new Error('POS_Products is empty. Run Awwffle > Setup / Update structure first.');
@@ -428,7 +436,7 @@ function savePosSnapshot_(payload) {
     var p = String(r['Product'] || '');
     if (groups.hasOwnProperty(p)) groups[p].push(r);
   });
-  products.forEach(function (p) { sortByDate_(groups[p]); });
+  products.forEach(function (p) { sortByDate_(groups[p.name]); });
 
   // Upsert this date's value for every product.
   products.forEach(function (p) {
@@ -455,7 +463,7 @@ function savePosSnapshot_(payload) {
       list.push(rec);
     }
   });
-  products.forEach(function (p) { sortByDate_(groups[p]); });
+  products.forEach(function (p) { sortByDate_(groups[p.name]); });
 
   // ---- Recompute Prev / Units Sold / Reset from this date forward ----
   var resetProducts = [];
@@ -543,6 +551,130 @@ function savePosSnapshot_(payload) {
     message: 'Saved POS snapshot for ' + key + '.' +
       (resetProducts.length ? ' Counter reset handled for: ' + resetProducts.join(', ') + '.' : '')
   };
+}
+
+/**
+ * Deletes the snapshot for one date and recascades the affected products.
+ *
+ * Use when a paste landed on the wrong date: delete that date, then enter the
+ * correct one. Rows after the deleted date are recomputed forward so their
+ * Prev/Units Sold still derive from the previous remaining counter.
+ *
+ * A Daily invoice on the same date is removed too (a monthly aggregate is never
+ * touched). Snapshot history on OTHER dates is not modified.
+ */
+function deletePosSnapshot_(dateString) {
+  var d = toDate_(dateString);
+  if (!d) return { ok: false, errors: ['A valid date is required.'] };
+  var key = dateKey_(d);
+
+  var rows = snapshotRecords_();
+  var doomed = rows.filter(function (r) { return dateKey_(r['Date']) === key; });
+  if (!doomed.length) return { ok: false, errors: ['No POS snapshot exists for ' + key + '.'] };
+
+  var affected = {};
+  doomed.forEach(function (r) { affected[String(r['Product'] || '')] = true; });
+
+  // Delete bottom-up so earlier row numbers stay valid while deleting.
+  var sheet = getSheet_(SHEETS.POS_SNAPSHOTS);
+  doomed.map(function (r) { return r.__row; })
+    .sort(function (a, b) { return b - a; })
+    .forEach(function (n) { sheet.deleteRow(n); });
+
+  // Rebuild forward for the affected products from the first row after the date.
+  var remaining = snapshotRecords_();
+  var groups = {};
+  remaining.forEach(function (r) {
+    var p = String(r['Product'] || '');
+    if (!p) return;
+    (groups[p] || (groups[p] = [])).push(r);
+  });
+  Object.keys(groups).forEach(function (p) { sortByDate_(groups[p]); });
+
+  var products = posProducts_();
+  var baselineOf = {};
+  products.forEach(function (p) { baselineOf[p.name] = p.baseline; });
+
+  var updates = [];
+  var warnings = [];
+
+  Object.keys(affected).forEach(function (p) {
+    var list = groups[p] || [];
+    var base = baselineOf[p] || 10000;
+
+    var start = 0;
+    while (start < list.length && dateKey_(list[start]['Date']) <= key) start++;
+
+    for (var i = start; i < list.length; i++) {
+      var prev = i === 0 ? base : toNumber_(list[i - 1]['Cr Stock']);
+      var curr = toNumber_(list[i]['Cr Stock']);
+      var res = computeUnitsSold_(prev, curr, base);
+
+      list[i]['Prev Stock'] = prev;
+      if (res.ok) {
+        list[i]['Units Sold'] = res.sold;
+        list[i]['Reset Occurred'] = res.reset;
+      } else {
+        list[i]['Units Sold'] = '';
+        list[i]['Reset Occurred'] = false;
+        warnings.push(p + ' on ' + dateKey_(list[i]['Date']) + ': ' + res.error);
+      }
+      updates.push({ row: list[i].__row, values: posSnapshotRow_(list[i]) });
+    }
+  });
+
+  updates.forEach(function (u) {
+    if (u.row && u.row >= 2) sheet.getRange(u.row, 1, 1, u.values.length).setValues([u.values]);
+  });
+
+  // Cumulative totals after the change.
+  var totals = {};
+  products.forEach(function (p) {
+    var sum = 0;
+    (groups[p.name] || []).forEach(function (e) {
+      var n = toNumber_(e['Units Sold']);
+      if (n !== null) sum += n;
+    });
+    totals[p.name] = round2_(sum);
+  });
+  writeCumulativeSold_(totals);
+
+  var invoiceDeleted = deleteDailyInvoice_(key);
+
+  logEvent_('POS', 'Snapshot deleted', key + ', ' + doomed.length + ' row(s)' +
+    (invoiceDeleted ? ', invoice removed' : ''));
+
+  return {
+    ok: true,
+    date: key,
+    deletedRows: doomed.length,
+    invoiceDeleted: invoiceDeleted,
+    warnings: warnings,
+    message: 'Deleted the POS snapshot for ' + key + '.' +
+      (invoiceDeleted ? ' Its daily invoice was removed too.' : '')
+  };
+}
+
+/** Deletes a DAILY invoice row for a date. Monthly aggregates are never touched. */
+function deleteDailyInvoice_(key) {
+  var sheet = getSheet_(SHEETS.INVOICES);
+  var headers = getHeaders_(sheet);
+  var srcCol = colIndex_(headers, 'Source');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+
+  var width = Math.max(headers.length, 1);
+  var values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (dateKey_(values[i][0]) !== key) continue;
+    var src = srcCol >= 0 ? String(values[i][srcCol] || '') : '';
+    if (src === 'Daily' || src === '') {
+      sheet.deleteRow(i + 2);
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Stable sort on the Date column. */
@@ -721,8 +853,14 @@ function applyPriceChanges_(products, valuesByName, date) {
     var cost = (v.cost === null || v.cost === undefined) ? null : v.cost;
     var sale = (v.sale === null || v.sale === undefined) ? null : v.sale;
 
+    // The POS export's "Sale" column often just repeats the cost (both show the
+    // same figure). A sale price identical to cost is not a real selling price,
+    // so it must never overwrite the configured Sale — that would silently turn
+    // revenue into cost (Unicorn Bliss 130 -> 60).
+    var saleIsDistinct = sale !== null && (cost === null || sale !== cost);
+
     var costChanged = cost !== null && p.cost !== null && cost !== p.cost;
-    var saleChanged = sale !== null && p.sale !== null && sale !== p.sale;
+    var saleChanged = saleIsDistinct && p.sale !== null && sale !== p.sale;
     if (!costChanged && !saleChanged) return;
 
     changes.push({
@@ -742,6 +880,43 @@ function applyPriceChanges_(products, valuesByName, date) {
   changes.forEach(function (c) {
     updatePosProductFields_(c.name, { 'Cost': c.cost, 'Sale': c.sale });
   });
+}
+
+/**
+ * Restores Sale prices that a paste accidentally overwrote with Cost.
+ *
+ * The POS export's "Sale" column sometimes just mirrors its "Cost" column. A row
+ * whose Sale equals its Cost is treated as a bad paste, and the configured sale
+ * price from the workbook seed is written back. A genuinely distinct sale price is
+ * never touched.
+ */
+function repairPosSalePrices_() {
+  var seed = {};
+  POS_PRODUCTS.forEach(function (p) { seed[p.name] = p.sale; });
+
+  var sheet = getSheet_(SHEETS.POS_PRODUCTS);
+  var headers = getHeaders_(sheet);
+  var nameCol = colIndex_(headers, 'Product Name');
+  var costCol = colIndex_(headers, 'Cost');
+  var saleCol = colIndex_(headers, 'Sale');
+  if (nameCol < 0 || costCol < 0 || saleCol < 0) return;
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var name = String(values[i][nameCol] || '');
+    if (!name || !seed.hasOwnProperty(name)) continue;
+
+    var cost = toNumber_(values[i][costCol]);
+    var sale = toNumber_(values[i][saleCol]);
+    if (cost === null || sale === null) continue;
+    if (sale !== cost) continue;                     // a real, distinct sale price
+    if (seed[name] !== null && seed[name] !== cost) {
+      sheet.getRange(i + 2, saleCol + 1).setValue(seed[name]);
+    }
+  }
 }
 
 /** Sets named columns on one POS product row. */
@@ -786,16 +961,38 @@ function getDailyWaffles_(startDate, endDate, filters) {
   var products = posProducts_();
   var kindOf = {};
   var saleOf = {};
-  products.forEach(function (p) { kindOf[p.name] = p.kind; saleOf[p.name] = p.sale; });
+  var costOf = {};
+
+  // Sale rate: the configured POS sale price. If a stored Sale equals Cost (a bad
+  // paste copied one into the other), fall back to the workbook seed so revenue is
+  // never computed from the cost rate.
+  var seedSale = {};
+  POS_PRODUCTS.forEach(function (p) { seedSale[p.name] = p.sale; });
+
+  products.forEach(function (p) {
+    kindOf[p.name] = p.kind;
+    costOf[p.name] = p.cost;
+    var sale = p.sale;
+    if (sale !== null && p.cost !== null && sale === p.cost &&
+        seedSale.hasOwnProperty(p.name) && seedSale[p.name] !== null) {
+      sale = seedSale[p.name];
+    }
+    saleOf[p.name] = sale;
+  });
 
   var rows = [];
   var byProduct = {};
+  var minDate = null;
+  var maxDate = null;
 
   snapshotRecords_().forEach(function (r) {
     var d = toDate_(r['Date']);
     if (!d) return;
     if (start && d < start) return;
     if (end && d > end) return;
+
+    if (!minDate || d < minDate) minDate = d;
+    if (!maxDate || d > maxDate) maxDate = d;
 
     var product = String(r['Product'] || '');
     if (!product) return;
@@ -815,11 +1012,19 @@ function getDailyWaffles_(startDate, endDate, filters) {
     });
 
     if (!byProduct[product]) {
-      byProduct[product] = { product: product, kind: kindOf[product] || '', units: 0, revenue: 0 };
+      byProduct[product] = {
+        product: product, kind: kindOf[product] || '',
+        units: 0, saleAmount: 0, costAmount: 0, revenue: 0
+      };
     }
-    byProduct[product].units += sold;
+    var bucket = byProduct[product];
+    bucket.units += sold;
+
     var sale = toNumber_(saleOf[product]);
-    if (sale !== null) byProduct[product].revenue += sold * sale;
+    if (sale !== null) bucket.saleAmount += sold * sale;
+
+    var cost = toNumber_(costOf[product]);
+    if (cost !== null) bucket.costAmount += sold * cost;
   });
 
   rows.sort(function (a, b) {
@@ -830,16 +1035,25 @@ function getDailyWaffles_(startDate, endDate, filters) {
   var list = Object.keys(byProduct).map(function (k) {
     var x = byProduct[k];
     x.units = round2_(x.units);
-    x.revenue = round2_(x.revenue);
+    x.saleAmount = round2_(x.saleAmount);
+    x.costAmount = round2_(x.costAmount);
+    // POS Revenue = sale at POS rate minus cost at POS cost rate.
+    x.revenue = round2_(x.saleAmount - x.costAmount);
     return x;
   });
-  list.sort(function (a, b) {
-    if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
-    return b.units - a.units;
-  });
+  list.sort(function (a, b) { return b.units - a.units; });
 
   var totalUnits = list.reduce(function (s, x) { return s + x.units; }, 0);
-  var totalRevenue = list.reduce(function (s, x) { return s + x.revenue; }, 0);
+  var totalSale = list.reduce(function (s, x) { return s + x.saleAmount; }, 0);
+  var totalCost = list.reduce(function (s, x) { return s + x.costAmount; }, 0);
+  var totalRevenue = round2_(totalSale - totalCost);
+
+  // Open days for the span shown. Use the requested bounds when given, otherwise
+  // the span the snapshots actually cover; closures come from the dated list.
+  var spanStart = start || minDate;
+  var spanEnd = end || maxDate;
+  var breakdown = (spanStart && spanEnd)
+    ? openDayBreakdown_(spanStart, spanEnd, closedDaySet_()) : null;
 
   return {
     range: {
@@ -849,7 +1063,12 @@ function getDailyWaffles_(startDate, endDate, filters) {
     rows: rows,
     byProduct: list,
     totalUnits: round2_(totalUnits),
+    totalSale: round2_(totalSale),
+    totalCost: round2_(totalCost),
     totalRevenue: round2_(totalRevenue),
-    rowCount: rows.length
+    rowCount: rows.length,
+    openDays: breakdown ? breakdown.openDays : 0,
+    calendarDays: breakdown ? breakdown.calendarDays : 0,
+    closedDays: breakdown ? breakdown.closedDays : 0
   };
 }

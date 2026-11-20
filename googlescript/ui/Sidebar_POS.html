@@ -33,6 +33,8 @@
     button:hover { background: #f8f9fa; }
     button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
     button.primary:hover { background: #1765cc; }
+    button.danger { color: #a50e0e; border-color: #f5c6c2; }
+    button.danger:hover { background: #fce8e6; }
     button:disabled { opacity: .5; cursor: default; }
 
     fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
@@ -125,8 +127,8 @@
           <input type="number" id="lastInvoice" min="0" step="1" placeholder="e.g. 428">
         </div>
         <div id="countWrap">
-          <label for="invoiceCount">Invoices today (first day only)</label>
-          <input type="number" id="invoiceCount" min="0" step="1" placeholder="null">
+          <label for="invoiceCount">Invoice count today</label>
+          <input type="number" id="invoiceCount" min="0" step="1" placeholder="e.g. 10">
         </div>
       </div>
       <div class="muted" id="invHint"></div>
@@ -141,6 +143,10 @@
       <span>Total sold: <strong id="totalSold">0</strong></span>
       <span class="spacer"></span>
       <button type="button" id="save" class="primary">Save snapshot</button>
+    </div>
+
+    <div class="actions hidden" id="deleteWrap" style="margin-top:6px">
+      <button type="button" id="deleteSnap" class="danger" style="width:100%">Delete the snapshot for this date</button>
     </div>
   </div>
 
@@ -301,9 +307,11 @@
         renderRows(panel.products);
         recalc();
 
-        $('closedNote').textContent = panel.isClosedDay
-          ? 'This date is recorded as a closed day. Saving is still allowed.'
-          : '';
+        var notes = [];
+        if (panel.isClosedDay) notes.push('This date is recorded as a closed day. Saving is still allowed.');
+        if (panel.isEditing) notes.push('A snapshot is already saved for this date — saving replaces it, or delete it below.');
+        $('closedNote').textContent = notes.join(' ');
+        $('deleteWrap').className = panel.isEditing ? 'actions' : 'actions hidden';
 
         var inv = panel.invoice || {};
         var existing = inv.existing;
@@ -311,9 +319,10 @@
         $('countWrap').className = (inv.prevLast === null) ? '' : 'hidden';
         $('invoiceCount').value = existing && existing.invoiceCount !== null ? existing.invoiceCount : '';
         $('invHint').textContent = inv.prevLast === null
-          ? (existing ? 'First daily invoice already recorded for this date.' :
-             'No earlier invoice number exists yet — enter the count from the POS day summary.')
-          : 'Daily count will be derived from the previous last invoice (' + inv.prevLast + ').';
+          ? (existing ? 'The first daily invoice is already recorded for this date.' :
+             'First daily entry — enter today\'s invoice count from the POS summary. ' +
+             'After this it is derived automatically and this box is not needed.')
+          : 'Invoice count will be derived from the previous last invoice (' + inv.prevLast + ').';
       })
       .withFailureHandler(function (err) {
         $('save').disabled = false;
@@ -408,6 +417,34 @@
       .savePosSnapshot(collect());
   }
 
+  function deleteSnapshot() {
+    var date = $('date').value;
+    if (!date) return;
+    if (!confirm('Delete the POS snapshot for ' + date + '?\n\n' +
+      'This removes that date\'s rows, recalculates later days, and removes a daily ' +
+      'invoice for the date. Then enter the correct date and paste again.')) return;
+
+    hideMsg();
+    $('deleteSnap').disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('deleteSnap').disabled = false;
+        if (!res || !res.ok) {
+          showMsg(res && res.errors ? res.errors.join('\n') : 'Delete failed.', 'error');
+          return;
+        }
+        var kind = (res.warnings && res.warnings.length) ? 'warn' : 'ok';
+        showMsg(res.message + (res.warnings && res.warnings.length ? '\n' + res.warnings.join('\n') : ''), kind);
+        $('paste').value = '';
+        loadDate();
+      })
+      .withFailureHandler(function (err) {
+        $('deleteSnap').disabled = false;
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .deletePosSnapshot(date);
+  }
+
   // ---- Daily waffles ----
   function populateWaffleProducts() {
     var sel = $('wProduct');
@@ -458,22 +495,27 @@
     }
 
     var tiles = '<div class="tiles">' +
-      '<div class="tile wide"><div class="k">Units sold</div>' +
+      '<div class="tile money wide"><div class="k">Total POS Sale</div>' +
+        '<div class="v">৳' + money(d.totalSale) + '</div></div>' +
+      '<div class="tile"><div class="k">Total open days</div>' +
+        '<div class="v">' + fmt(d.openDays) + '</div></div>' +
+      '<div class="tile"><div class="k">Items</div>' +
+        '<div class="v">' + d.byProduct.length + '</div></div>' +
+      '<div class="tile"><div class="k">Units sold</div>' +
         '<div class="v">' + fmt(d.totalUnits) + '</div></div>' +
-      '<div class="tile"><div class="k">Revenue (at POS sale price)</div>' +
+      '<div class="tile money"><div class="k">POS Revenue</div>' +
         '<div class="v">৳' + money(d.totalRevenue) + '</div></div>' +
-      '<div class="tile"><div class="k">Items</div><div class="v">' + d.byProduct.length + '</div></div>' +
       '</div>';
 
     var rows = '';
     d.byProduct.forEach(function (x) {
-      rows += '<tr><td>' + esc(x.product) + '</td><td>' + esc(x.kind) + '</td>' +
+      rows += '<tr><td>' + esc(x.product) + '</td>' +
         '<td class="n">' + fmt(x.units) + '</td>' +
-        '<td class="n">৳' + money(x.revenue) + '</td></tr>';
+        '<td class="n">৳' + money(x.saleAmount) + '</td></tr>';
     });
 
     var table = '<div class="tbl-wrap"><table><thead><tr>' +
-      '<th>Product</th><th>Kind</th><th class="n">Units</th><th class="n">Revenue</th>' +
+      '<th>Product</th><th class="n">Units</th><th class="n">Sale</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
     $('waffleOut').innerHTML = tiles + table;
@@ -491,6 +533,7 @@
 
     $('date').addEventListener('change', loadDate);
     $('save').addEventListener('click', save);
+    $('deleteSnap').addEventListener('click', deleteSnapshot);
     $('parse').addEventListener('click', parsePaste);
     $('wRun').addEventListener('click', runWaffles);
     $('wKind').addEventListener('change', runWaffles);
