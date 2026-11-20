@@ -845,8 +845,18 @@
     }
 
     tiles += tile('Used cost', money(d.totals.usedCost)) +
-      tile('Remaining value', money(d.totals.remainingValue)) +
-      tile('Low stock', d.lowCount) +
+      tile('Remaining value', money(d.totals.remainingValue));
+
+    // How long the remaining stock lasts — a per-item figure, so only shown
+    // when a single item is in view (sits above the Low stock count).
+    if (single) {
+      tiles += tile('Est batches',
+          (single.estBatches === '' || single.estBatches === null) ? '—' : single.estBatches) +
+        tile('Est open days',
+          (single.estDays === '' || single.estDays === null) ? '—' : single.estDays);
+    }
+
+    tiles += tile('Low stock', d.lowCount) +
       '</div>';
 
     // One searched item that is low gets its own red callout, replacing the old
@@ -862,25 +872,28 @@
         d.negativeCount + ' item(s) have negative stock — almost always a missing purchase.</div>';
     }
 
+    // Remaining-stock table only: item, remaining qty, avg rate, remaining value,
+    // and a red/green low-stock sign. No estimated days and no flags column.
     var rows = '';
     d.rows.forEach(function (r) {
       var neg = r.remainingQty < 0;
+      var sign = r.lowStock
+        ? '<span class="up" title="Low stock">●</span>'
+        : '<span class="down" title="Adequate">●</span>';
       rows += '<tr>' +
         '<td' + (neg ? ' class="neg"' : '') + '>' + esc(r.item) + '</td>' +
-        '<td class="n">' + num(r.totalQty) + '</td>' +
+        '<td class="n">' + qty(r.remainingQty) + '</td>' +
         '<td class="n">' + num(r.avgRate) + '</td>' +
-        '<td class="n">' + num(r.remainingQty) + '</td>' +
         '<td class="n">' + money(r.remainingValue) + '</td>' +
-        '<td class="n">' + (r.estDays === '' ? '—' : r.estDays) + '</td>' +
-        '<td>' + esc(r.flags) + '</td>' +
+        '<td class="n">' + ((r.estBatches === '' || r.estBatches === null) ? '—' : r.estBatches) + '</td>' +
+        '<td class="n">' + sign + '</td>' +
         '</tr>';
     });
 
-    var table = '<div class="section-title">Items (' + esc(d.asOf) + ')</div>' +
+    var table = '<div class="section-title">Remaining Stock Value (' + esc(d.asOf) + ')</div>' +
       '<div class="tbl-wrap"><table><thead><tr>' +
       '<th>Item</th><th class="n">Qty</th><th class="n">Avg rate</th>' +
-      '<th class="n">Remaining</th><th class="n">Value</th>' +
-      '<th class="n">Est days</th><th>Flags</th>' +
+      '<th class="n">Value</th><th class="n">Est batches</th><th class="n">Status</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
     $('stockOut').innerHTML = tiles + table;
