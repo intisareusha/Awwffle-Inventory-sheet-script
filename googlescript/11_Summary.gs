@@ -127,6 +127,8 @@ function getSummaryOptions_() {
       { key: 'all', label: 'All time' },
       { key: 'thisMonth', label: 'This month' },
       { key: 'lastMonth', label: 'Last month' },
+      { key: 'today', label: 'Today' },
+      { key: 'yesterday', label: 'Yesterday' },
       { key: 'last7', label: 'Last 7 days' },
       { key: 'last30', label: 'Last 30 days' }
     ]
@@ -149,6 +151,13 @@ function resolvePreset_(preset, todayStr) {
       start: dateKey_(new Date(today.getFullYear(), today.getMonth() - 1, 1)),
       end: dateKey_(new Date(today.getFullYear(), today.getMonth(), 0))
     };
+  }
+  if (preset === 'today') {
+    return { start: dateKey_(today), end: dateKey_(today) };
+  }
+  if (preset === 'yesterday') {
+    var y = dateKey_(new Date(today.getTime() - 86400000));
+    return { start: y, end: y };
   }
   if (preset === 'last7') {
     return {

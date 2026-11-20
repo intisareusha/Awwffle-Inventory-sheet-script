@@ -495,6 +495,7 @@
     { key: 'today', label: 'Today' },
     { key: 'yesterday', label: 'Yesterday' },
     { key: 'last7', label: 'Last 7 days' },
+    { key: 'last30', label: 'Last 30 days' },
     { key: 'thisMonth', label: 'This month' },
     { key: 'lastMonth', label: 'Last month' }
   ];
@@ -557,6 +558,8 @@
       from = addDaysKey(today, -1); to = from;
     } else if (key === 'last7') {
       from = addDaysKey(today, -6);
+    } else if (key === 'last30') {
+      from = addDaysKey(today, -29);
     } else if (key === 'thisMonth') {
       t = parseKey(today);
       from = keyOf(new Date(t.getFullYear(), t.getMonth(), 1));
