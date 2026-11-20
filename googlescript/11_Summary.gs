@@ -806,6 +806,11 @@ function summaryStock_(asOf, filters) {
     rowCount: rows.length,
     totalItemCount: computed.rows.length,
     rows: rows.map(function (r) {
+      var item = findItem_(r.item);
+      // Quantity in the buying unit too (pieces for Nutella/Whip Cream, kg for
+      // Flour). The UI shows it by itself only for piece-items held in grams,
+      // which is the "pieces AND grams" case.
+      var factor = item ? baseMultiplier_(item.unit, item.perPieceWeight) : 1;
       return {
         item: r.item,
         group: r.group,
@@ -820,7 +825,15 @@ function summaryStock_(asOf, filters) {
         totalCost: r.totalCost,
         estDays: r.estDays,
         estBatches: r.estBatches,
-        flags: r.flags.join(', ')
+        flags: r.flags.join(', '),
+
+        // Display-unit figures and state for the tiles.
+        displayUnit: item ? item.unit : r.baseUnit,
+        pieceBase: !!(item && item.unit === 'p' && item.baseUnit !== 'p'),
+        usedDisplay: factor ? round2_(r.totalUsed / factor) : '',
+        remainingDisplay: factor ? round2_(r.remainingQty / factor) : '',
+        lowStock: !!r.lowStock,
+        negative: r.remainingQty < 0
       };
     }),
     totals: {

@@ -161,14 +161,23 @@ function itemCosting_(itemName, opts) {
 // Consumption by population
 // ---------------------------------------------------------------------------
 
-/** Manual usage (toppings/packaging) from Adjustments, in base units. */
-function manualUsedBaseQuantity_(itemName, adjustmentRows) {
+/**
+ * Manual usage (toppings/packaging) from Adjustments, in base units.
+ *
+ * `adjustmentIndex` is an optional item index built once by `indexByItem_`. The
+ * Stock view values every item, so scanning the whole Adjustments sheet per item
+ * is the same quadratic pattern Bazar had; passing the index keeps it linear.
+ */
+function manualUsedBaseQuantity_(itemName, adjustmentRows, adjustmentIndex) {
   var rows = adjustmentRows || readRecords_(SHEETS.ADJUSTMENTS);
+  var needle = normaliseItemName_(itemName);
+  var forItem = adjustmentIndex
+    ? (adjustmentIndex[needle] || [])
+    : rows.filter(function (r) { return normaliseItemName_(r['Item']) === needle; });
+
   var out = 0;
 
-  rows.forEach(function (r) {
-    if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
-
+  forItem.forEach(function (r) {
     var q = toNumber_(r['Base Quantity']);
     if (q === null) {
       // Older rows may only carry the entry quantity; convert it.
@@ -195,14 +204,18 @@ function manualUsedBaseQuantity_(itemName, adjustmentRows) {
  * One POS sale consumes one stock unit. The cumulative figure comes from the
  * POS product's lifetime total, which survives counter resets.
  */
-function resaleUsedBaseQuantity_(itemName, posRows) {
+function resaleUsedBaseQuantity_(itemName, posRows, posIndex) {
   var item = findItem_(itemName);
   if (!item || item.population !== POPULATION.RESALE || !item.posLink) return 0;
 
   var rows = posRows || readRecords_(SHEETS.POS_SNAPSHOTS);
+  // Index by POS product once so a resale item visits only its own snapshot rows.
+  var forProduct = posIndex
+    ? (posIndex[normaliseItemName_(item.posLink)] || [])
+    : rows.filter(function (r) { return String(r['Product']) === item.posLink; });
+
   var sold = 0;
-  rows.forEach(function (r) {
-    if (String(r['Product']) !== item.posLink) return;
+  forProduct.forEach(function (r) {
     var n = toNumber_(r['Units Sold']);
     if (n !== null) sold += n;
   });
@@ -238,6 +251,13 @@ function computeStock_(asOf, opts) {
   // Index once for the whole 43-item valuation rather than once per item.
   var openingIndex = indexByItem_(openingRows, 'Item');
   var bazarIndex = indexByItem_(bazarRows, 'Item');
+  var adjustmentIndex = indexByItem_(adjustmentRows, 'Item');
+  var posIndex = indexByItem_(posRows, 'Product');
+
+  // Read the opening cut-off ONCE. Without this, itemCosting_ falls back to
+  // openingCutOff_ itself, which re-reads the Settings sheet for every item —
+  // 43 sheet round trips for one Stock view.
+  var cutOff = openingCutOff_();
 
   // Batch totals drive recipe consumption. Restricted to the same as-of window.
   var batchRange = asOfDate ? { start: null, end: asOfDate } : null;
@@ -258,7 +278,8 @@ function computeStock_(asOf, opts) {
       openingRows: openingRows,
       bazarRows: bazarRows,
       openingIndex: openingIndex,
-      bazarIndex: bazarIndex
+      bazarIndex: bazarIndex,
+      cutOff: cutOff
     });
 
     // --- Usage, by population ---
@@ -271,9 +292,9 @@ function computeStock_(asOf, opts) {
     if (population === POPULATION.RECIPE) {
       perPrep = ingredientConsumptionByPreparation_(name, batchTotals);
     } else if (population === POPULATION.RESALE) {
-      resaleUsed = resaleUsedBaseQuantity_(name, posRows);
+      resaleUsed = resaleUsedBaseQuantity_(name, posRows, posIndex);
     } else {
-      manualUsed = manualUsedBaseQuantity_(name, adjustmentRows);
+      manualUsed = manualUsedBaseQuantity_(name, adjustmentRows, adjustmentIndex);
     }
 
     var totalUsed = manualUsed + resaleUsed;

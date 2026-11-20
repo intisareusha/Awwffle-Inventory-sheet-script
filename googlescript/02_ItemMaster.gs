@@ -152,13 +152,23 @@ function itemNames_() {
   return ITEMS.map(function (i) { return i.name; });
 }
 
+/**
+ * Lazily built lookup from normalised name to item. `ITEMS` never changes, so the
+ * map is built once per execution. Without it, every lookup walked all 43 items
+ * and re-normalised each name — and the Stock view looks up items hundreds of
+ * times (valuation, consumption, measurements, flags).
+ */
+var ITEM_LOOKUP_ = null;
+
 /** Looks up one item definition by canonical name (case- and space-insensitive). */
 function findItem_(name) {
-  var needle = normaliseItemName_(name);
-  for (var i = 0; i < ITEMS.length; i++) {
-    if (normaliseItemName_(ITEMS[i].name) === needle) return ITEMS[i];
+  if (!ITEM_LOOKUP_) {
+    ITEM_LOOKUP_ = {};
+    for (var i = 0; i < ITEMS.length; i++) {
+      ITEM_LOOKUP_[normaliseItemName_(ITEMS[i].name)] = ITEMS[i];
+    }
   }
-  return null;
+  return ITEM_LOOKUP_[normaliseItemName_(name)] || null;
 }
 
 /**

@@ -826,25 +826,41 @@
       return;
     }
 
+    // A single item in view gets quantity tiles in its own units; across many
+    // items grams and pieces cannot be summed, so those tiles are omitted.
+    var single = d.rowCount === 1 ? d.rows[0] : null;
+
     var tiles = '<div class="tiles">' +
       '<div class="tile money wide"><div class="k">Total cost (used + remaining)</div>' +
-        '<div class="v">' + money(d.totals.totalCost) + '</div></div>' +
-      tile('Used cost', money(d.totals.usedCost)) +
+        '<div class="v">' + money(d.totals.totalCost) + '</div></div>';
+
+    if (single) {
+      tiles += tile('Total used (' + single.baseUnit + ')', qty(single.totalUsed)) +
+        tile('Remaining stock (' + single.baseUnit + ')', qty(single.remainingQty));
+      // Piece-items held in grams (Nutella, Whipped Cream): also show the count.
+      if (single.pieceBase) {
+        tiles += tile('Total used (' + single.displayUnit + ')', qty(single.usedDisplay)) +
+          tile('Remaining stock (' + single.displayUnit + ')', qty(single.remainingDisplay));
+      }
+    }
+
+    tiles += tile('Used cost', money(d.totals.usedCost)) +
       tile('Remaining value', money(d.totals.remainingValue)) +
-      tile('Items shown', d.rowCount + ' of ' + d.totalItemCount) +
       tile('Low stock', d.lowCount) +
       '</div>';
 
-    if (d.negativeCount) {
+    // One searched item that is low gets its own red callout, replacing the old
+    // "Remaining: 2975 gm" line.
+    if (single && single.lowStock) {
+      var why = single.negative
+        ? ' has negative stock — almost always a missing purchase'
+        : ' is low on stock';
+      tiles += '<div class="msg error" style="display:block">' +
+        esc(single.item) + why + '.</div>';
+    } else if (d.negativeCount) {
       tiles += '<div class="msg error" style="display:block">' +
         d.negativeCount + ' item(s) have negative stock — almost always a missing purchase.</div>';
     }
-
-    // Quantities are grouped by unit: grams and pieces cannot be summed together.
-    var qtyLine = d.quantityByUnit.map(function (u) {
-      return num(u.remaining) + ' ' + esc(u.unit);
-    }).join(' · ');
-    tiles += '<div class="muted" style="margin-bottom:10px">Remaining: ' + qtyLine + '</div>';
 
     var rows = '';
     d.rows.forEach(function (r) {
