@@ -40,6 +40,15 @@ var GROUPS = ['Recipes', 'Toppings', 'Equipments'];
  */
 var PREPARATIONS = ['Batter', 'Nutella Mix', 'Cream', 'White Mix', 'Cheese'];
 
+/**
+ * Weekday names in JavaScript's getDay() order.
+ *
+ * Lives here rather than in 11_Summary because the closed-days module uses it too,
+ * and a later-numbered file must not be the only definition of a constant an
+ * earlier file depends on.
+ */
+var WEEKDAY_NAMES_ = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 /** Units accepted at entry (README §13.C21). */
 var ENTRY_UNITS = ['p', 'kg', 'gm', 'l', 'ml'];
 

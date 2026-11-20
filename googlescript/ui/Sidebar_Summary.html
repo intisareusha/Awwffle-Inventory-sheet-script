@@ -75,6 +75,19 @@
       font-size: 11px; font-weight: 500; color: #5f6368; text-transform: none;
       letter-spacing: 0; cursor: pointer; }
     .cmp-toggle input { width: auto; margin: 0; padding: 0; border: none; }
+
+    /* Busy state: shown while a filtered summary is being computed server-side. */
+    #pane-batches, #pane-bazar, #pane-stock { position: relative; }
+    .busy-overlay {
+      position: absolute; inset: 0; background: rgba(255,255,255,.74);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px; font-size: 12px; color: #5f6368; z-index: 10; border-radius: 6px;
+    }
+    .spinner {
+      width: 22px; height: 22px; border: 2px solid #dadce0; border-top-color: #1a73e8;
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -114,8 +127,9 @@
       <div><label>Expense type</label><select id="bazarType"></select></div>
       <div><label>Item</label><select id="bazarItem"></select></div>
     </div>
-    <div class="row">
-      <label>Invoice</label><select id="bazarInvoice"></select>
+    <div class="grid2 row">
+      <div><label>Status</label><select id="bazarStatus"></select></div>
+      <div><label>Invoice</label><select id="bazarInvoice"></select></div>
     </div>
     <button type="button" class="primary" id="bazarRun" style="width:100%">Show spending</button>
     <div id="bazarOut" style="margin-top:10px"></div>
@@ -211,6 +225,7 @@
     $('bazarTo').addEventListener('change', function () { clearPreset('bazar'); runTab('bazar'); });
     $('bazarType').addEventListener('change', function () { populateBazarItems(); runTab('bazar'); });
     $('bazarItem').addEventListener('change', function () { runTab('bazar'); });
+    $('bazarStatus').addEventListener('change', function () { runTab('bazar'); });
     $('bazarInvoice').addEventListener('change', function () { runTab('bazar'); });
 
     google.script.run
@@ -276,6 +291,16 @@
 
     populateBazarItems();
 
+    var bs = $('bazarStatus');
+    var allStatus = document.createElement('option');
+    allStatus.value = ''; allStatus.textContent = '(paid and due)';
+    bs.appendChild(allStatus);
+    (OPTIONS.bazarStatuses || ['Paid', 'Due']).forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = name; o.textContent = name;
+      bs.appendChild(o);
+    });
+
     var bi = $('bazarInvoice');
     var allInv = document.createElement('option');
     allInv.value = ''; allInv.textContent = '(all invoices)';
@@ -309,7 +334,7 @@
     });
 
     populateItems();
-    runTab('batches');
+    runTab('batch');
   }
 
   function populateItems() {
@@ -370,6 +395,39 @@
     setPresetActive(which, '');
   }
 
+  // runTab/loadSummary call tabs 'batch'/'bazar'/'stock'; the panes are named
+  // 'batches'/'bazar'/'stock'. This is the single place that maps the two.
+  var PANE_FOR = { batch: 'pane-batches', bazar: 'pane-bazar', stock: 'pane-stock' };
+
+  /*
+   * Puts a pane into (or out of) its loading state.
+   *
+   * While a summary is in flight the pane is dimmed behind a spinner AND every
+   * control inside it is disabled, so a second click cannot fire another request
+   * and leave two answers racing for the screen. The old figures stay behind the
+   * overlay rather than vanishing, so the change of number is never jarring.
+   */
+  function setBusy(tab, busy) {
+    var pane = $(PANE_FOR[tab]);
+    if (!pane) return;
+
+    Array.prototype.forEach.call(pane.querySelectorAll('button, select, input'), function (el) {
+      el.disabled = busy;
+    });
+
+    var overlay = pane.querySelector('.busy-overlay');
+    if (busy) {
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'busy-overlay';
+        overlay.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
+        pane.appendChild(overlay);
+      }
+    } else if (overlay) {
+      overlay.parentNode.removeChild(overlay);
+    }
+  }
+
   function applyPreset(which, key) {
     setPresetActive(which, key);
 
@@ -377,15 +435,20 @@
       $(which + 'From').value = OPTIONS.dataStart || OPTIONS.today;
       $(which + 'To').value = OPTIONS.dataEnd || OPTIONS.today;
     } else {
+      // The date range has to be resolved on the server first, so hold the pane
+      // busy for that round trip too; runTab then keeps it busy until the
+      // filtered data is drawn.
+      setBusy(which, true);
       google.script.run
         .withSuccessHandler(function (r) {
-          if (!r) return;
+          if (!r) { setBusy(which, false); return; }
           $(which + 'From').value = r.start;
           $(which + 'To').value = r.end;
           runTab(which);
         })
         .withFailureHandler(function (err) {
           // Silent failure here would look like the chip did nothing.
+          setBusy(which, false);
           showMsg('Could not work out that date range: ' +
             (err && err.message ? err.message : err), 'error');
         })
@@ -398,42 +461,74 @@
   function runTab(which) {
     hideMsg();
     if (which === 'batch') {
-      $('batchOut').innerHTML = '<div class="muted">Loading…</div>';
-      google.script.run
-        .withSuccessHandler(renderBatches)
-        .withFailureHandler(fail('batches'))
-        .summaryBatches($('batchFrom').value, $('batchTo').value, $('batchPrep').value);
+      loadSummary('batch', 'batchOut', function (ok, bad) {
+        google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+          .summaryBatches($('batchFrom').value, $('batchTo').value, $('batchPrep').value);
+      }, renderBatches, 'batches');
     } else if (which === 'bazar') {
-      $('bazarOut').innerHTML = '<div class="muted">Loading…</div>';
-      google.script.run
-        .withSuccessHandler(renderBazar)
-        .withFailureHandler(fail('bazar'))
-        .summaryBazar($('bazarFrom').value, $('bazarTo').value, {
-          type: $('bazarType').value,
-          item: $('bazarItem').value,
-          invoice: $('bazarInvoice').value
-        });
+      loadSummary('bazar', 'bazarOut', function (ok, bad) {
+        google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+          .summaryBazar($('bazarFrom').value, $('bazarTo').value, {
+            type: $('bazarType').value,
+            item: $('bazarItem').value,
+            status: $('bazarStatus').value,
+            invoice: $('bazarInvoice').value
+          });
+      }, renderBazar, 'bazar');
     } else {
-      $('stockOut').innerHTML = '<div class="muted">Loading…</div>';
-      google.script.run
-        .withSuccessHandler(renderStock)
-        .withFailureHandler(fail('stock'))
-        .summaryStock($('stockAsOf').value, {
-          group: $('stockGroup').value,
-          population: $('stockPopulation').value,
-          item: $('stockItem').value,
-          lowStockOnly: $('stockLowOnly').checked,
-          negativeOnly: $('stockNegOnly').checked
-        });
+      loadSummary('stock', 'stockOut', function (ok, bad) {
+        google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+          .summaryStock($('stockAsOf').value, {
+            group: $('stockGroup').value,
+            population: $('stockPopulation').value,
+            item: $('stockItem').value,
+            lowStockOnly: $('stockLowOnly').checked,
+            negativeOnly: $('stockNegOnly').checked
+          });
+      }, renderStock, 'stock');
     }
   }
 
-  function fail(which) {
-    return function (err) {
-      $(which + 'Out').innerHTML = '';
-      showMsg('Could not load ' + which + ': ' +
-        (err && err.message ? err.message : err), 'error');
-    };
+  /*
+   * One request at a time per pane, and only the newest answer is drawn.
+   *
+   * Every filter change used to fire a server call immediately, so dragging a
+   * select or tabbing through dates started several executions at once. Apps
+   * Script bounds the whole project, not one request: the pile-up is what
+   * produced DEADLINE_EXCEEDED, and the last-drawn pane could be an older answer
+   * than the one just asked for. Coalescing rapid changes (debounce) and ignoring
+   * a superseded reply fixes both, without touching what any figure means.
+   */
+  var PENDING = {};      // tab -> timeout id
+  var REQUEST_NO = {};   // tab -> sequence of the newest request
+
+  function loadSummary(tab, outId, call, render, errLabel) {
+    // Go busy immediately, before the debounce, so even a rapid burst of filter
+    // changes shows the spinner and locks the controls straight away.
+    setBusy(tab, true);
+
+    if (PENDING[tab]) clearTimeout(PENDING[tab]);
+    PENDING[tab] = setTimeout(function () {
+      PENDING[tab] = null;
+      var seq = (REQUEST_NO[tab] || 0) + 1;
+      REQUEST_NO[tab] = seq;
+
+      // Filters are read inside `call`, i.e. now that the user has stopped
+      // changing them, so the request carries the newest values.
+      call(function (data) {
+        // A reply for a superseded request must not overwrite a newer one. Leave
+        // the pane busy: the newer request is already in flight and will clear it.
+        if (REQUEST_NO[tab] !== seq) return;
+        render(data);
+        setBusy(tab, false);
+      }, function (err) {
+        if (REQUEST_NO[tab] !== seq) return;
+        $(outId).innerHTML = '';
+        showMsg('Could not load ' + errLabel + ': ' +
+          (err && err.message ? err.message : err), 'error');
+        setBusy(tab, false);
+      });
+    }, 250);
   }
 
   // ---------- Batches ----------
@@ -592,6 +687,7 @@
     var active = [];
     if (f.type) active.push('Type: ' + f.type);
     if (f.item) active.push('Item: ' + f.item);
+    if (f.status) active.push('Status: ' + f.status);
     if (f.invoice) active.push('Invoice: ' + f.invoice);
 
     var filterLine = active.length
@@ -607,30 +703,86 @@
       return;
     }
 
+    // Total spent, then the counts that actually answer "how much did I buy".
+    // Open days and avg-per-open-day are deliberately gone: spending divided by
+    // days says nothing about whether a purchase was needed or expensive.
+    // Paid/Due are listed only when both exist, so filtering to one status does
+    // not print the other as a misleading 0.00.
+    var statusTiles = '';
+    var statuses = Object.keys(d.byStatus || {}).sort();
+    if (statuses.length > 1) {
+      statuses.forEach(function (st) {
+        statusTiles += tile(st, money(d.byStatus[st]));
+      });
+    }
+
     var tiles = '<div class="tiles">' +
       '<div class="tile money wide"><div class="k">Total spent (BDT)</div>' +
         '<div class="v">' + money(d.total) + '</div></div>' +
-      tile('Lines', d.count) +
-      tile('Open days', d.openDays) +
-      tile('Avg per open day', money(d.avgPerOpenDay)) +
+      tile('Total items', d.itemCount) +
       tile('Invoices', d.invoices.length) +
+      tile('Purchase lines', d.count) +
+      statusTiles +
       '</div>';
+
+    // Rate tiles only when one item is in view: an "average rate" spanning flour
+    // and napkins is a number about nothing.
+    var stats = d.itemStats;
+    if (stats) {
+      var rateUnit = stats.rateUnit ? ' / ' + esc(stats.rateUnit) : '';
+      var cheaper = '';
+      if (stats.lastRate !== '' && stats.avgRate !== '') {
+        cheaper = stats.lastRate > stats.avgRate ? ' paying more than average'
+          : (stats.lastRate < stats.avgRate ? ' paying less than average' : ' at the average');
+      }
+      tiles += '<div class="tiles">' +
+        tile('Avg rate' + rateUnit, money(stats.avgRate)) +
+        tile('Last purchase rate' + rateUnit, money(stats.lastRate)) +
+        tile('Last bought', stats.lastDate || '—') +
+        '</div>' +
+        (cheaper ? '<div class="muted" style="margin-bottom:9px">' +
+          esc(stats.item) + ' is' + cheaper + '.</div>' : '');
+    }
 
     var typeRows = '';
     Object.keys(d.byType).sort().forEach(function (t) {
       typeRows += '<tr><td>' + esc(t) + '</td><td class="n">' +
         money(d.byType[t]) + '</td></tr>';
     });
-    var byType = '<div class="section-title">By expense type</div>' +
+    var byType = '<div class="section-title">By expense</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>Type</th>' +
       '<th class="n">Amount</th></tr></thead><tbody>' + typeRows + '</tbody></table></div>';
+
+    // "All items selected" means the Total Purchase table is the whole story, so
+    // this per-purchase detail is skipped then. With any filter on, the same table
+    // becomes a summary and these rows are what answer "which bazar, at what rate".
+    var narrowed = f.item || f.type || f.status || f.invoice;
+    var purchased = '';
+    if (narrowed) {
+      var pRows = '';
+      d.purchases.slice(0, 60).forEach(function (x) {
+        pRows += '<tr><td>' + esc(x.date) + '</td>' +
+          '<td>' + esc(x.ref || '—') + '</td>' +
+          '<td class="n">' + (x.quantity === null ? '—' : num(x.quantity)) + '</td>' +
+          '<td>' + esc(x.unit) + '</td>' +
+          '<td class="n">' + money(x.rate) + '</td>' +
+          '<td class="n">' + money(x.amount) + '</td>' +
+          '<td>' + esc(x.status) + '</td></tr>';
+      });
+      purchased = '<div class="section-title">By items purchased' +
+        (d.purchases.length > 60 ? ' (newest 60)' : '') + '</div>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Ref</th>' +
+        '<th class="n">Qty</th><th>Unit</th><th class="n">Rate</th>' +
+        '<th class="n">Amount</th><th>Status</th></tr></thead><tbody>' +
+        pRows + '</tbody></table></div>';
+    }
 
     var itemRows = '';
     d.items.forEach(function (x) {
       itemRows += '<tr><td>' + esc(x.item) + '</td><td>' + esc(x.quantityText) +
         '</td><td class="n">' + money(x.amount) + '</td></tr>';
     });
-    var byItem = '<div class="section-title">By item</div>' +
+    var byItem = '<div class="section-title">Total purchase</div>' +
       '<div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Quantity</th>' +
       '<th class="n">Amount</th></tr></thead><tbody>' + itemRows + '</tbody></table></div>';
 
@@ -644,7 +796,7 @@
       '<th class="n">Lines</th><th class="n">Amount</th></tr></thead><tbody>' +
       invRows + '</tbody></table></div>';
 
-    $('bazarOut').innerHTML = tiles + filterLine + byType + byItem + byInvoice;
+    $('bazarOut').innerHTML = tiles + filterLine + purchased + byItem + byType + byInvoice;
   }
 
   // ---------- Stock ----------

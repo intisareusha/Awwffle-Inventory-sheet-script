@@ -122,6 +122,7 @@ function getSummaryOptions_() {
     bazarTypes: Object.keys(bazarTypes).sort(),
     bazarItems: bazarItemList,
     bazarInvoices: bazarInvoiceList,
+    bazarStatuses: BAZAR_STATUSES.slice(),
     presets: [
       { key: 'all', label: 'All time' },
       { key: 'thisMonth', label: 'This month' },
@@ -222,15 +223,40 @@ function batchCostModel_(bazarRows, openingRows, cutOff, asOfDate) {
   var matrix = readMeasurementMatrix_();
   var avgCost = {};
 
+  // Index the (date-limited) purchase rows once, then each ingredient only visits
+  // its own rows. Previously every ingredient scanned every purchase row.
+  var openingIndex = indexByItem_(openingRows, 'Item');
+  var bazarIndex = indexByItem_(rows, 'Item');
+
   Object.keys(matrix).forEach(function (ingredient) {
     avgCost[ingredient] = itemCosting_(ingredient, {
       openingRows: openingRows,
       bazarRows: rows,
+      openingIndex: openingIndex,
+      bazarIndex: bazarIndex,
       cutOff: cutOff
     }).avg;
   });
 
   return batchCostPerPreparationFrom_(matrix, avgCost);
+}
+
+/**
+ * A cost-model getter that builds each end date at most once.
+ *
+ * The batches summary and its cost comparison ask for the same end dates over and
+ * over: Last 7, Last 30 and This month all end today, All time ends on the last
+ * batch date, and the selected range often lands on one of those too. Rebuilding
+ * the model for each was pure duplication — same rows, same arithmetic. Memoising
+ * by date key keeps the numbers identical while doing one build per distinct end.
+ */
+function makeBatchModelGetter_(bazarRows, openingRows, cutOff) {
+  var cache = {};
+  return function (end) {
+    var k = end ? dateKey_(end) : '';
+    if (!cache[k]) cache[k] = batchCostModel_(bazarRows, openingRows, cutOff, end);
+    return cache[k];
+  };
 }
 
 /** Totals per preparation from already-read batch rows, for one range. */
@@ -265,14 +291,23 @@ function batchTotalsFromRows_(rows, startDate, endDate) {
  * costed at the prices in force at its own end, so a purchase-price rise shows up
  * in the periods after it rather than retroactively rewriting every past figure.
  */
-function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
+function summaryCostComparison_(selectedStart, selectedEnd, preparation, sources) {
   var wanted = String(preparation || '');
   var filter = PREPARATIONS.indexOf(wanted) !== -1 ? wanted : '';
 
-  var batchRows = readRecords_(SHEETS.BATCHES);
-  var bazarRows = readRecords_(SHEETS.BAZAR);
-  var openingRows = readRecords_(SHEETS.OPENING_STOCK);
-  var cutOff = openingCutOff_();
+  // Accept rows already read by the caller. Reading them again here was pure
+  // duplication: same data, same call, same storage quota.
+  var src = sources || {};
+  var batchRows = src.batchRows || readRecords_(SHEETS.BATCHES);
+  var bazarRows = src.bazarRows || readRecords_(SHEETS.BAZAR);
+  var openingRows = src.openingRows || readRecords_(SHEETS.OPENING_STOCK);
+  var cutOff = src.cutOff || openingCutOff_();
+
+  // Reuse the caller's memoised cost model when it has one; build one otherwise.
+  var getModel = src.modelGetter || makeBatchModelGetter_(bazarRows, openingRows, cutOff);
+
+  // One closure read for every row below, not one per row.
+  var closedSet = src.closedSet || closedDaySet_();
 
   var dates = batchRows.map(function (r) { return toDate_(r['Date']); })
     .filter(Boolean).sort(function (a, b) { return a - b; });
@@ -298,7 +333,7 @@ function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
   var rows = definitions.map(function (def) {
     var stats = batchTotalsFromRows_(batchRows, def.range.start, def.range.end);
     var breakdown = (def.range.start && def.range.end)
-      ? openDayBreakdown_(def.range.start, def.range.end) : null;
+      ? openDayBreakdown_(def.range.start, def.range.end, closedSet) : null;
     var openDays = breakdown ? breakdown.openDays : 0;
 
     var batches = 0;
@@ -324,7 +359,7 @@ function summaryCostComparison_(selectedStart, selectedEnd, preparation) {
       };
     }
 
-    var model = batchCostModel_(bazarRows, openingRows, cutOff, def.range.end);
+    var model = getModel(def.range.end);
 
     var cost = 0;
     PREPARATIONS.forEach(function (p) {
@@ -383,6 +418,18 @@ function summaryBatches_(startDate, endDate, preparation) {
   var wanted = String(preparation || '');
   var filter = PREPARATIONS.indexOf(wanted) !== -1 ? wanted : '';
 
+  // Every source this summary needs is read ONCE. The cost comparison below used
+  // to re-read Batches, Bazar and OpeningStock itself, and each of its six rows
+  // re-read the closure list — which is what pushed the call into
+  // DEADLINE_EXCEEDED. Reading up front and passing the rows down removes the
+  // repeats without changing a single number.
+  var batchRows = readRecords_(SHEETS.BATCHES);
+  var bazarRows = readRecords_(SHEETS.BAZAR);
+  var openingRows = readRecords_(SHEETS.OPENING_STOCK);
+  var cutOff = openingCutOff_();
+  var closedSet = closedDaySet_();
+  var getModel = makeBatchModelGetter_(bazarRows, openingRows, cutOff);
+
   var totals = {};
   PREPARATIONS.forEach(function (p) { totals[p] = 0; });
 
@@ -391,7 +438,7 @@ function summaryBatches_(startDate, endDate, preparation) {
   var first = null;
   var last = null;
 
-  readRecords_(SHEETS.BATCHES).forEach(function (r) {
+  batchRows.forEach(function (r) {
     var d = toDate_(r['Date']);
     if (!d) return;
     if (start && d < start) return;
@@ -427,7 +474,8 @@ function summaryBatches_(startDate, endDate, preparation) {
   // dates" must not shrink just because the last few days had no entry.
   var spanStart = start || first;
   var spanEnd = end || last;
-  var breakdown = spanStart && spanEnd ? openDayBreakdown_(spanStart, spanEnd) : null;
+  var breakdown = spanStart && spanEnd
+    ? openDayBreakdown_(spanStart, spanEnd, closedSet) : null;
   var openDays = breakdown ? breakdown.openDays : 0;
 
   var avgByPreparation = {};
@@ -437,12 +485,7 @@ function summaryBatches_(startDate, endDate, preparation) {
 
   // Ingredient cost of what was made. Valued at the prices in force at the end of
   // the range, so an old range is not restated at today's prices.
-  var model = batchCostModel_(
-    readRecords_(SHEETS.BAZAR),
-    readRecords_(SHEETS.OPENING_STOCK),
-    openingCutOff_(),
-    end || last
-  );
+  var model = getModel(end || last);
 
   var costByPreparation = {};
   var costPerOpenDay = {};
@@ -461,7 +504,14 @@ function summaryBatches_(startDate, endDate, preparation) {
     costByPreparation: costByPreparation,
     costPerOpenDay: costPerOpenDay,
     unpricedIngredients: model.unpriced,
-    costComparison: summaryCostComparison_(startDate, endDate, filter),
+    costComparison: summaryCostComparison_(startDate, endDate, filter, {
+      batchRows: batchRows,
+      bazarRows: bazarRows,
+      openingRows: openingRows,
+      cutOff: cutOff,
+      closedSet: closedSet,
+      modelGetter: getModel
+    }),
     recordCount: recordCount,
     firstDate: first ? dateKey_(first) : '',
     lastDate: last ? dateKey_(last) : '',
@@ -472,21 +522,51 @@ function summaryBatches_(startDate, endDate, preparation) {
   };
 }
 
-var WEEKDAY_NAMES_ = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
 // ---------------------------------------------------------------------------
 // Bazar summary
 // ---------------------------------------------------------------------------
 
 /**
- * Spending over a range: by expense type, by item, by month, and by invoice.
+ * Rate stats for ONE item: average paid per unit, and the rate on the last buy.
+ *
+ * Kept as a pure function because this is the arithmetic most likely to be wrong
+ * by a factor of 1,000: spend is money over BASE quantity (gm / ml / p), while
+ * the owner reads rates per kg / litre / piece. Returns null when the item is
+ * unknown or no quantity was ever recorded, so the UI shows nothing rather than
+ * a zero that reads like a real rate.
+ */
+function bazarRateStats_(itemName, amount, baseQty, lastRate, lastDate, lines) {
+  var item = findItem_(itemName);
+  if (!item) return null;
+
+  var qty = toNumber_(baseQty);
+  var spent = toNumber_(amount) || 0;
+
+  return {
+    item: itemName,
+    avgRate: qty > 0 ? round2_(entryRateFromPerBase_(item, spent / qty)) : '',
+    lastRate: lastRate === null || lastRate === undefined ? '' : round2_(lastRate),
+    lastDate: lastDate || '',
+    purchaseCount: Number(lines) || 0,
+    rateUnit: item.unit
+  };
+}
+
+/**
+ * Spending over a range: by expense type, by item, by purchase line, and by invoice.
  *
  * Optional filters narrow the whole view the same way the batch preparation
- * filter does: type, item name, or invoice ref. They combine (AND), and every
- * figure — totals, tables, averages, invoice count — follows the filtered set.
+ * filter does: type, item name, invoice ref, payment status. They combine (AND),
+ * and every figure — totals, tables, rate stats, invoice count — follows the
+ * filtered set.
  *
  * Quantity is reported alongside money but never summed across items — grams and
  * pieces cannot be added. Only the money column totals meaningfully.
+ *
+ * RATE STATS ONLY MAKE SENSE FOR ONE ITEM
+ * An average rate or a "last purchase rate" across flour and napkins is a number
+ * about nothing. So `itemStats` is populated only when the filtered set is a
+ * single item, and the UI shows those tiles only then.
  */
 function summaryBazar_(startDate, endDate, filters) {
   var start = toDate_(startDate);
@@ -496,6 +576,7 @@ function summaryBazar_(startDate, endDate, filters) {
   var wantType = String(f.type || '');
   var wantItem = String(f.item || '');
   var wantInvoice = String(f.invoice || '');
+  var wantStatus = String(f.status || '');
 
   var total = 0;
   var count = 0;
@@ -504,6 +585,7 @@ function summaryBazar_(startDate, endDate, filters) {
   var byMonth = {};
   var byStatus = {};
   var invoiceMap = {};
+  var purchases = [];
 
   readRecords_(SHEETS.BAZAR).forEach(function (r) {
     var d = toDate_(r['Date']);
@@ -516,6 +598,7 @@ function summaryBazar_(startDate, endDate, filters) {
     var name = String(r['Item'] || r['Expense Name'] || '');
     var unit = String(r['Unit'] || '');
     var qty = toNumber_(r['Quantity']);
+    var rate = toNumber_(r['Rate']);
     var status = String(r['Status'] || 'Paid');
     var ref = String(r['Ref'] || '').trim();
     var month = dateKey_(d).substring(0, 7);
@@ -523,6 +606,7 @@ function summaryBazar_(startDate, endDate, filters) {
     if (wantType && type !== wantType) return;
     if (wantItem && name !== wantItem) return;
     if (wantInvoice && ref !== wantInvoice) return;
+    if (wantStatus && status !== wantStatus) return;
 
     total += amount;
     count++;
@@ -531,13 +615,41 @@ function summaryBazar_(startDate, endDate, filters) {
     byStatus[status] = (byStatus[status] || 0) + amount;
     byMonth[month] = (byMonth[month] || 0) + amount;
 
-    if (!byItem[name]) {
-      byItem[name] = { item: name, amount: 0, lines: 0, units: {}, type: type };
+    var baseQty = toNumber_(r['Base Quantity']);
+    if (baseQty === null && qty !== null && UNIT_RULES[unit]) {
+      // Older rows may predate Base Quantity; convert using the item's own
+      // per-piece weight so a jar is not counted as one gram.
+      var itemForQty = findItem_(name);
+      baseQty = toBaseQuantity_(qty, unit, itemForQty ? itemForQty.perPieceWeight : null);
     }
-    byItem[name].amount += amount;
-    byItem[name].lines++;
+
+    if (!byItem[name]) {
+      byItem[name] = {
+        item: name, amount: 0, lines: 0, units: {}, type: type,
+        baseQty: 0, lastStamp: '', lastDate: '', lastRate: null
+      };
+    }
+    var bucket = byItem[name];
+    bucket.amount += amount;
+    bucket.lines++;
+    if (baseQty !== null) bucket.baseQty += baseQty;
     if (unit && qty !== null) {
-      byItem[name].units[unit] = (byItem[name].units[unit] || 0) + qty;
+      bucket.units[unit] = (bucket.units[unit] || 0) + qty;
+    }
+
+    // "Last purchase rate" is the rate on the newest purchase line, which is what
+    // tells the owner whether the next buy will cost more. Rows are ordered by
+    // date, then by Entered At, so same-day entries keep entry order. Entered At
+    // can come back as a real Date, so it is compared as a timestamp, not text.
+    var enteredAt = r['Entered At'];
+    var enteredMs = enteredAt instanceof Date ? enteredAt.getTime()
+      : (enteredAt ? Date.parse(String(enteredAt)) : NaN);
+    if (isNaN(enteredMs)) enteredMs = 0;
+    var stamp = d.getTime() + enteredMs;
+    if (bucket.lastRate === null || stamp >= bucket.lastStamp) {
+      bucket.lastStamp = stamp;
+      bucket.lastDate = dateKey_(d);
+      bucket.lastRate = rate;
     }
 
     if (ref) {
@@ -545,6 +657,18 @@ function summaryBazar_(startDate, endDate, filters) {
       invoiceMap[ref].lines++;
       invoiceMap[ref].total += amount;
     }
+
+    purchases.push({
+      date: dateKey_(d),
+      ref: ref,
+      item: name,
+      type: type,
+      quantity: qty,
+      unit: unit,
+      rate: rate,
+      amount: round2_(amount),
+      status: status
+    });
   });
 
   var items = Object.keys(byItem).map(function (k) {
@@ -567,22 +691,36 @@ function summaryBazar_(startDate, endDate, filters) {
     return { ref: x.ref, date: x.date, lines: x.lines, total: round2_(x.total) };
   }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 
-  var breakdown = start && end ? openDayBreakdown_(start, end) : null;
+  purchases.sort(function (a, b) {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;   // newest first
+    return a.item < b.item ? -1 : 1;
+  });
+
+  // Rate stats, only when one item is in view. The average is money spent divided
+  // by base quantity, then read back in the unit the owner buys in (per kg / l /
+  // piece), so it is comparable with the rate on a purchase row.
+  var itemStats = null;
+  if (wantItem) {
+    var x = byItem[wantItem];
+    if (x) {
+      itemStats = bazarRateStats_(
+        wantItem, x.amount, x.baseQty, x.lastRate, x.lastDate, x.lines);
+    }
+  }
 
   return {
     range: { start: start ? dateKey_(start) : '', end: end ? dateKey_(end) : '' },
-    filters: { type: wantType, item: wantItem, invoice: wantInvoice },
+    filters: { type: wantType, item: wantItem, invoice: wantInvoice, status: wantStatus },
     total: round2_(total),
     count: count,
+    itemCount: items.length,
     byType: byType,
     byStatus: byStatus,
     byMonth: byMonth,
     items: items,
+    purchases: purchases,
     invoices: invoices,
-    openDays: breakdown ? breakdown.openDays : 0,
-    calendarDays: breakdown ? breakdown.calendarDays : 0,
-    avgPerOpenDay: (breakdown && breakdown.openDays > 0)
-      ? round2_(total / breakdown.openDays) : ''
+    itemStats: itemStats
   };
 }
 

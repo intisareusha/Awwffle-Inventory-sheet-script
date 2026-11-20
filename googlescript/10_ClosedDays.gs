@@ -49,8 +49,13 @@ function removeClosedDay(dateString) {
 
 /** A set of date keys that are closed. The single source for open-day maths. */
 function closedDaySet_() {
+  return closedSetFromRows_(readRecords_(SHEETS.CLOSED_DAYS));
+}
+
+/** Same set, built from rows the caller already read. */
+function closedSetFromRows_(rows) {
   var set = {};
-  readRecords_(SHEETS.CLOSED_DAYS).forEach(function (r) {
+  (rows || []).forEach(function (r) {
     var k = dateKey_(r['Date']);
     if (k) set[k] = true;
   });
@@ -59,14 +64,17 @@ function closedDaySet_() {
 
 /** All closures, newest first, with weekday for readability. */
 function closedDaysList_() {
-  var names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return closedDaysFromRows_(readRecords_(SHEETS.CLOSED_DAYS));
+}
 
-  return readRecords_(SHEETS.CLOSED_DAYS).map(function (r) {
+/** Same list, built from rows the caller already read. */
+function closedDaysFromRows_(rows) {
+  return (rows || []).map(function (r) {
     var d = toDate_(r['Date']);
     if (!d) return null;
     return {
       date: dateKey_(d),
-      weekday: names[d.getDay()],
+      weekday: WEEKDAY_NAMES_[d.getDay()],
       reason: String(r['Reason'] || ''),
       recordedAt: r['Recorded At'] || ''
     };
@@ -84,30 +92,42 @@ function closedDaysList_() {
  * current data range so a new closure can be seen taking effect immediately.
  */
 function getClosedDaysPanel_() {
-  var posDays = readRecords_(SHEETS.POS_SNAPSHOTS).map(function (r) {
+  // Read each source once and pass the rows down. This panel previously read the
+  // closure list five times and the POS snapshots twice, which made it the slowest
+  // thing in the sidebar for no reason.
+  var closedRows = readRecords_(SHEETS.CLOSED_DAYS);
+  var posRows = readRecords_(SHEETS.POS_SNAPSHOTS);
+  var batchRows = readRecords_(SHEETS.BATCHES);
+
+  var closedList = closedDaysFromRows_(closedRows);
+  var closedSet = closedSetFromRows_(closedRows);
+
+  var posDays = posRows.map(function (r) {
     return dateKey_(r['Date']);
   }).filter(Boolean);
 
-  var batchDays = readRecords_(SHEETS.BATCHES).map(function (r) {
+  var batchDays = batchRows.map(function (r) {
     return dateKey_(r['Date']);
   }).filter(Boolean);
 
   var firstPos = posDays.length ? posDays.slice().sort()[0] : '';
   var lastPos = posDays.length ? posDays.slice().sort().pop() : '';
 
-  var range = firstPos && lastPos ? openDayBreakdown_(firstPos, lastPos) : null;
-  var missed = range ? findMissedEntries_() : [];
+  var range = firstPos && lastPos
+    ? openDayBreakdown_(firstPos, lastPos, closedSet) : null;
+  var missed = range ? findMissedEntries_(posRows, closedSet) : [];
 
   return {
     today: dateKey_(new Date()),
-    closedDays: closedDaysList_(),
+    closedDays: closedList,
     posRange: { first: firstPos, last: lastPos },
     posOpenDays: range,
     batchOpenDays: batchDays.length
-      ? openDayBreakdown_(batchDays.slice().sort()[0], batchDays.slice().sort().pop())
+      ? openDayBreakdown_(batchDays.slice().sort()[0],
+          batchDays.slice().sort().pop(), closedSet)
       : null,
     missedEntries: missed,
-    suggestions: suggestWeekdays_()
+    suggestions: suggestWeekdaysFrom_(closedList)
   };
 }
 
@@ -116,18 +136,27 @@ function getClosedDaysPanel_() {
  *
  * Returns null for an unusable range so callers show a blank rather than a zero
  * that looks like real data.
+ *
+ * `closedSet` may be passed in when the caller already holds one. Reading the
+ * closure list once and reusing it is the difference between one storage read and
+ * seven on a batches summary, which is what caused the DEADLINE_EXCEEDED errors.
  */
-function openDayBreakdown_(start, end) {
+function openDayBreakdown_(start, end, closedSet) {
   var a = toDate_(start);
   var b = toDate_(end);
   if (!a || !b || a > b) return null;
 
-  var closedSet = closedDaySet_();
+  var closed = closedSet || closedDaySet_();
   var calendar = daysBetweenInclusive_(a, b);
   var closedCount = 0;
 
-  dateRange_(a, b).forEach(function (d) {
-    if (closedSet[dateKey_(d)]) closedCount++;
+  // Count the closures that fall inside the range rather than walking every
+  // calendar day. A closure list is tiny but a range can span years, so this
+  // keeps the cost tied to the number of closures, not the length of the range.
+  // The result is identical: only closed keys within [a, b] are counted.
+  Object.keys(closed).forEach(function (k) {
+    var d = toDate_(k);
+    if (d && d >= a && d <= b) closedCount++;
   });
 
   return {
@@ -145,9 +174,9 @@ function openDayBreakdown_(start, end) {
  * This is the §13.A7 distinction: a day is either deliberately closed or a missed
  * entry, never both and never silently neither. Only open days can be missed.
  */
-function findMissedEntries_() {
+function findMissedEntries_(posRows, closedSet) {
   var posDates = {};
-  readRecords_(SHEETS.POS_SNAPSHOTS).forEach(function (r) {
+  (posRows || readRecords_(SHEETS.POS_SNAPSHOTS)).forEach(function (r) {
     var k = dateKey_(r['Date']);
     if (k) posDates[k] = true;
   });
@@ -155,16 +184,15 @@ function findMissedEntries_() {
   var keys = Object.keys(posDates).sort();
   if (!keys.length) return [];
 
-  var closedSet = closedDaySet_();
-  var names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var closed = closedSet || closedDaySet_();
   var missed = [];
 
   dateRange_(keys[0], keys[keys.length - 1]).forEach(function (d) {
     var k = dateKey_(d);
     if (posDates[k]) return;        // traded
-    if (closedSet[k]) return;       // deliberately closed: fine
+    if (closed[k]) return;          // deliberately closed: fine
 
-    missed.push({ date: k, weekday: names[d.getDay()] });
+    missed.push({ date: k, weekday: WEEKDAY_NAMES_[d.getDay()] });
   });
 
   return missed;
@@ -176,9 +204,8 @@ function findMissedEntries_() {
  * Never applied automatically: the owner's history already shows the pattern
  * shifting, so this is information, not a rule.
  */
-function suggestWeekdays_() {
-  var list = closedDaysList_();
-  if (!list.length) return [];
+function suggestWeekdaysFrom_(list) {
+  if (!list || !list.length) return [];
 
   var counts = {};
   list.forEach(function (c) { counts[c.weekday] = (counts[c.weekday] || 0) + 1; });

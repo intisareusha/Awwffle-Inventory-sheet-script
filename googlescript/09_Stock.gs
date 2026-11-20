@@ -48,6 +48,23 @@ function openingCutOff_() {
 }
 
 /**
+ * Groups rows by their normalised item name, so a multi-item valuation can visit
+ * only the rows that belong to the item instead of scanning the whole sheet per
+ * item. Building this once turns the Stock and batch-cost paths from
+ * `items x rows` into `rows`.
+ */
+function indexByItem_(rows, field) {
+  var key = field || 'Item';
+  var index = {};
+  (rows || []).forEach(function (r) {
+    var k = normaliseItemName_(r[key]);
+    if (!k) return;
+    (index[k] || (index[k] = [])).push(r);
+  });
+  return index;
+}
+
+/**
  * Weighted-average cost for one item (§6.2.1).
  *
  * Opening stock is the first "purchase" at its snapshot rate, so the average is
@@ -55,6 +72,11 @@ function openingCutOff_() {
  * `used cost + remaining value = total available value` true for any split.
  *
  * Returns { openingQty, openingValue, purchaseQty, purchaseValue, avg, availableQty }
+ *
+ * `opts.openingIndex` / `opts.bazarIndex` are optional pre-built item indexes. A
+ * caller valuing many items should build them once and pass them in — otherwise
+ * every item scans every row, which is what made the batch cost model quadratic.
+ * When they are absent this still works, just by filtering the rows it was given.
  */
 function itemCosting_(itemName, opts) {
   opts = opts || {};
@@ -63,12 +85,19 @@ function itemCosting_(itemName, opts) {
 
   var item = findItem_(itemName);
   var baseUnit = item ? item.baseUnit : '';
+  var needle = normaliseItemName_(itemName);
+
+  var openingForItem = opts.openingIndex
+    ? (opts.openingIndex[needle] || [])
+    : openingRows.filter(function (r) { return normaliseItemName_(r['Item']) === needle; });
+  var bazarForItem = opts.bazarIndex
+    ? (opts.bazarIndex[needle] || [])
+    : bazarRows.filter(function (r) { return normaliseItemName_(r['Item']) === needle; });
 
   // --- Opening layer (pre-Bazar stock, §6.3) ---
   var openingQty = 0;
   var openingValue = 0;
-  openingRows.forEach(function (r) {
-    if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
+  openingForItem.forEach(function (r) {
     var q = toNumber_(r['Quantity']);
     if (q === null) return;
     openingQty += q;
@@ -97,8 +126,7 @@ function itemCosting_(itemName, opts) {
 
   var purchaseQty = 0;
   var purchaseValue = 0;
-  bazarRows.forEach(function (r) {
-    if (normaliseItemName_(r['Item']) !== normaliseItemName_(itemName)) return;
+  bazarForItem.forEach(function (r) {
     var affects = String(r['Affects Stock']);
     if (affects !== 'true' && affects !== 'TRUE') return;
 
@@ -207,6 +235,10 @@ function computeStock_(asOf, opts) {
   var adjustmentRows = filterByDateAsOf_(readRecords_(SHEETS.ADJUSTMENTS), asOfDate);
   var posRows = filterByDateAsOf_(readRecords_(SHEETS.POS_SNAPSHOTS), asOfDate);
 
+  // Index once for the whole 43-item valuation rather than once per item.
+  var openingIndex = indexByItem_(openingRows, 'Item');
+  var bazarIndex = indexByItem_(bazarRows, 'Item');
+
   // Batch totals drive recipe consumption. Restricted to the same as-of window.
   var batchRange = asOfDate ? { start: null, end: asOfDate } : null;
   var batchStats = batchTotals_(batchRange && batchRange.start, batchRange && batchRange.end);
@@ -222,7 +254,12 @@ function computeStock_(asOf, opts) {
     var population = String(r['Population']);
     var item = findItem_(name);
 
-    var cost = itemCosting_(name, { openingRows: openingRows, bazarRows: bazarRows });
+    var cost = itemCosting_(name, {
+      openingRows: openingRows,
+      bazarRows: bazarRows,
+      openingIndex: openingIndex,
+      bazarIndex: bazarIndex
+    });
 
     // --- Usage, by population ---
     var perPrep = {};

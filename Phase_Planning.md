@@ -481,6 +481,8 @@ I will keep this table updated so we both know where we stand.
 | 5b — Bazar edit/delete + date order | yes | 296 unit, 260 integration | reviewed and run | **approved** | not yet |
 | 6 — stock | yes | 372 unit, 35 stock + full migration | reviewed and run | **approved** | not yet |
 | 6.5 — summary views + closed days | yes | 372 unit, 59 summary, 12 suites | **awaiting your review** | — | not yet |
+| 6.6 — bazar due/paid + item rate tiles | yes | 399 unit, 20 bazar e2e | **awaiting your review** | — | not yet |
+| 6.7 — summary performance (DEADLINE_EXCEEDED) | yes | 406 unit, byte-identical outputs | **awaiting your review** | — | not yet |
 | 7 — POS | — | — | — | — | — |
 | 8 — reports | — | — | — | — | — |
 | 9 — cost / adjustments | — | — | — | — | — |

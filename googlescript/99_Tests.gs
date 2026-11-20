@@ -42,6 +42,8 @@ function runAllTests() {
     testOpenDayBreakdown,
     testSummaryPresets,
     testSummaryShape,
+    testBazarRateStats,
+    testSummaryReadCounts,
     testBatchCostModel
   ];
 
@@ -1453,6 +1455,121 @@ function testSummaryShape() {
   eq_(s, 'batchCostModel_ exists', typeof batchCostModel_, 'function');
   eq_(s, 'summaryCostComparison_ exists', typeof summaryCostComparison_, 'function');
   eq_(s, 'batchTotalsFromRows_ exists', typeof batchTotalsFromRows_, 'function');
+
+  // Bazar summary seams: status filter, per-purchase table, single-item rates.
+  eq_(s, 'bazarRateStats_ exists', typeof bazarRateStats_, 'function');
+  eq_(s, 'bazar statuses are offered to the Summary sidebar',
+    BAZAR_STATUSES.join('|'), 'Paid|Due');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Bazar single-item rate tiles — README §5.4
+// ---------------------------------------------------------------------------
+
+/**
+ * The rate tiles are the owner's new request: with one item in view she wants the
+ * average rate she has been paying and the rate on the last purchase.
+ *
+ * The conversion is where this can go wrong silently. Flour is bought in kg but
+ * held in gm, so spend / base quantity is per GRAM and must be read back per KG
+ * before it can be compared with a purchase rate. Nutella adds the per-piece
+ * weight on top, which is the other way the same figure ends up 350x out.
+ */
+function testBazarRateStats() {
+  var s = newSuite_();
+
+  // Flour: 10 kg bought for 670 is 67 per kg. Base quantity is 10,000 gm.
+  var flour = bazarRateStats_('Flour', 670, 10000, 70, '2026-11-17', 2);
+  eq_(s, 'flour avg rate is per kg', flour.avgRate, 67);
+  eq_(s, 'flour last rate kept', flour.lastRate, 70);
+  eq_(s, 'flour last date kept', flour.lastDate, '2026-11-17');
+  eq_(s, 'flour purchase count kept', flour.purchaseCount, 2);
+  eq_(s, 'flour rate unit is the buy unit', flour.rateUnit, 'kg');
+
+  // Milk: 25 l for 2,000 is 80 per litre (base quantity is ml).
+  var milk = bazarRateStats_('Milk', 2000, 25000, 82, '2026-11-16', 1);
+  eq_(s, 'milk avg rate is per litre', milk.avgRate, 80);
+  eq_(s, 'milk rate unit', milk.rateUnit, 'l');
+
+  // Nutella: 10 jars at 830 each = 8,300, base quantity 3,500 gm (350 gm/jar).
+  // The average is per PIECE, so it must read 830, not 2.37 per gram.
+  var nutella = bazarRateStats_('Nutella', 8300, 3500, 850, '2026-11-15', 10);
+  eq_(s, 'nutella avg rate is per piece', nutella.avgRate, 830);
+  eq_(s, 'nutella rate unit', nutella.rateUnit, 'p');
+
+  // No quantity means no rate: a blank tile, not a zero that reads like free stock.
+  var noQty = bazarRateStats_('Flour', 500, 0, null, '', 1);
+  eq_(s, 'no quantity gives blank avg rate', noQty.avgRate, '');
+  eq_(s, 'no last rate gives blank', noQty.lastRate, '');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Storage read counts — the DEADLINE_EXCEEDED guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Each summary call must read every source ONCE.
+ *
+ * This is not micro-optimisation. Apps Script bounds the whole project's storage
+ * access, and a batches summary used to read the closure list seven times (once
+ * per cost-comparison row) and Bazar/Batches twice — which surfaced in the sidebar
+ * as "server error ... DEADLINE_EXCEEDED" and made every filter change feel stuck.
+ *
+ * The assertion is on counts, not timing, so it holds regardless of sheet size.
+ */
+function testSummaryReadCounts() {
+  var s = newSuite_();
+
+  var READS = {};
+  var total = 0;
+
+  // Swap in a counting SpreadsheetApp for exactly one call, then restore.
+  var real = SpreadsheetApp;
+  try {
+    SpreadsheetApp = {
+      getActiveSpreadsheet: function () {
+        return {
+          getSheetByName: function (name) {
+            return {
+              getLastRow: function () { return 2; },
+              getLastColumn: function () { return 1; },
+              getRange: function () {
+                return {
+                  getValues: function () {
+                    READS[name] = (READS[name] || 0) + 1;
+                    total++;
+                    return [['']];
+                  }
+                };
+              }
+            };
+          },
+          toast: function () {}
+        };
+      }
+    };
+
+    summaryBatches('2026-11-01', '2026-11-30', '');
+  } finally {
+    SpreadsheetApp = real;
+  }
+
+  // One read each: batches, bazar, opening stock, closures, settings, recipes.
+  // Nothing is read twice, which is the whole point.
+  eq_(s, 'batches summary reads Batches once', READS[SHEETS.BATCHES] || 0, 1);
+  eq_(s, 'batches summary reads Bazar once', READS[SHEETS.BAZAR] || 0, 1);
+  eq_(s, 'batches summary reads OpeningStock once', READS[SHEETS.OPENING_STOCK] || 0, 1);
+  eq_(s, 'batches summary reads ClosedDays once', READS[SHEETS.CLOSED_DAYS] || 0, 1);
+  eq_(s, 'batches summary reads Settings once', READS[SHEETS.SETTINGS] || 0, 1);
+  eq_(s, 'batches summary reads Measurements once',
+    READS[SHEETS.MEASUREMENTS] || 0, 1);
+  eq_(s, 'batches summary reads exactly six sheets', total, 6);
+  eq_(s, 'no sheet is read more than once',
+    Object.keys(READS).filter(function (k) { return READS[k] > 1; }).join(','), '');
 
   return s;
 }
