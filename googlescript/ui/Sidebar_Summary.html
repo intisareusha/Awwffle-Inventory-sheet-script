@@ -47,6 +47,8 @@
     .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
     .tile.wide { grid-column: 1 / -1; }
     .tile.money .v { color: #188038; }
+    .tile.used .v { color: #a50e0e; }   /* what has been consumed — red */
+    .tile.good .v { color: #188038; }   /* what remains — green */
 
     /* Tables */
     .tbl-wrap { max-height: 260px; overflow: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
@@ -175,6 +177,11 @@
   function money(n) {
     if (n === '' || n === null || n === undefined) return '—';
     return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  // Money as shown in a TILE: taka sign prefix, or a dash when there is no figure.
+  function moneyV(n) {
+    if (n === '' || n === null || n === undefined) return '—';
+    return '৳' + money(n);
   }
   function num(n) {
     if (n === '' || n === null || n === undefined) return '—';
@@ -351,11 +358,31 @@
     all.value = ''; all.textContent = '(all items)';
     sel.appendChild(all);
 
+    // Bucket by category so the expanded list reads in a predictable order:
+    // Recipes, then Toppings, then Equipments. Any unexpected group falls in last.
+    var buckets = {};
     (OPTIONS.items || []).forEach(function (it) {
       if (group && it.group !== group) return;
-      var o = document.createElement('option');
-      o.value = it.name; o.textContent = it.name;
-      sel.appendChild(o);
+      var g = it.group || '';
+      (buckets[g] || (buckets[g] = [])).push(it);
+    });
+
+    var order = ['Recipes', 'Toppings', 'Equipments'];
+    Object.keys(buckets).forEach(function (g) {
+      if (order.indexOf(g) === -1) order.push(g);
+    });
+
+    order.forEach(function (g) {
+      var list = buckets[g];
+      if (!list || !list.length) return;
+      var og = document.createElement('optgroup');
+      og.label = g;
+      list.forEach(function (it) {
+        var o = document.createElement('option');
+        o.value = it.name; o.textContent = it.name;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
     });
   }
 
@@ -371,11 +398,31 @@
     all.value = ''; all.textContent = '(all items)';
     sel.appendChild(all);
 
+    // Bucket by expense type so the expanded list is grouped, in the same fixed
+    // order as the Expense Types list. Unknown types fall in last.
+    var buckets = {};
     (OPTIONS.bazarItems || []).forEach(function (it) {
       if (type && it.type !== type) return;
-      var o = document.createElement('option');
-      o.value = it.name; o.textContent = it.name;
-      sel.appendChild(o);
+      var g = it.type || '';
+      (buckets[g] || (buckets[g] = [])).push(it);
+    });
+
+    var order = ['Inventory purchase', 'Salary', 'Courier', 'Maintenance', 'Other'];
+    Object.keys(buckets).forEach(function (g) {
+      if (order.indexOf(g) === -1) order.push(g);
+    });
+
+    order.forEach(function (g) {
+      var list = buckets[g];
+      if (!list || !list.length) return;
+      var og = document.createElement('optgroup');
+      og.label = g;
+      list.forEach(function (it) {
+        var o = document.createElement('option');
+        o.value = it.name; o.textContent = it.name;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
     });
 
     var stillThere = false;
@@ -570,10 +617,8 @@
       ? selected + ' Cost / Open Day' : 'Total Cost / OD';
 
     var tiles = '<div class="tiles">' +
-      '<div class="tile money"><div class="k">' + esc(costLabel) + '</div>' +
-        '<div class="v">' + money(totalAvgCost) + '</div></div>' +
-      '<div class="tile money"><div class="k">' + esc(perDayLabel) + '</div>' +
-        '<div class="v">' + (d.openDays > 0 ? money(totalCostPerOpenDay) : '—') + '</div></div>' +
+      moneyTile(costLabel, totalAvgCost) +
+      moneyTile(perDayLabel, d.openDays > 0 ? totalCostPerOpenDay : '') +
       tile('Calendar days', d.calendarDays) +
       tile('Open days', d.openDays) +
       tile('Closed days', d.closedDays) +
@@ -718,13 +763,13 @@
     var statuses = Object.keys(d.byStatus || {}).sort();
     if (statuses.length > 1) {
       statuses.forEach(function (st) {
-        statusTiles += tile(st, money(d.byStatus[st]));
+        statusTiles += moneyTile(st, d.byStatus[st]);
       });
     }
 
     var tiles = '<div class="tiles">' +
       '<div class="tile money wide"><div class="k">Total spent (BDT)</div>' +
-        '<div class="v">' + money(d.total) + '</div></div>' +
+        '<div class="v">' + moneyV(d.total) + '</div></div>' +
       tile('Total items', d.itemCount) +
       tile('Invoices', d.invoices.length) +
       statusTiles +
@@ -757,9 +802,9 @@
       }
 
       tiles += '<div class="tiles">' +
-        tile('Avg rate' + rateUnit, money(stats.avgRate)) +
+        moneyTile('Avg rate' + rateUnit, stats.avgRate) +
         '<div class="tile money"><div class="k">Last rate' + rateUnit + '</div>' +
-          '<div class="v">' + money(stats.lastRate) + arrow + '</div></div>' +
+          '<div class="v">' + moneyV(stats.lastRate) + arrow + '</div></div>' +
         qtyTiles +
         '</div>';
     }
@@ -832,20 +877,21 @@
 
     var tiles = '<div class="tiles">' +
       '<div class="tile money wide"><div class="k">Total cost (used + remaining)</div>' +
-        '<div class="v">' + money(d.totals.totalCost) + '</div></div>';
+        '<div class="v">' + moneyV(d.totals.totalCost) + '</div></div>';
 
     if (single) {
-      tiles += tile('Total used (' + single.baseUnit + ')', qty(single.totalUsed)) +
-        tile('Remaining stock (' + single.baseUnit + ')', qty(single.remainingQty));
+      // Used = red, remaining = green, at a glance.
+      tiles += tintedTile('Total used (' + single.baseUnit + ')', qty(single.totalUsed), 'used') +
+        tintedTile('Remaining stock (' + single.baseUnit + ')', qty(single.remainingQty), 'good');
       // Piece-items held in grams (Nutella, Whipped Cream): also show the count.
       if (single.pieceBase) {
-        tiles += tile('Total used (' + single.displayUnit + ')', qty(single.usedDisplay)) +
-          tile('Remaining stock (' + single.displayUnit + ')', qty(single.remainingDisplay));
+        tiles += tintedTile('Total used (' + single.displayUnit + ')', qty(single.usedDisplay), 'used') +
+          tintedTile('Remaining stock (' + single.displayUnit + ')', qty(single.remainingDisplay), 'good');
       }
     }
 
-    tiles += tile('Used cost', money(d.totals.usedCost)) +
-      tile('Remaining value', money(d.totals.remainingValue));
+    tiles += tintedTile('Used cost', moneyV(d.totals.usedCost), 'used') +
+      moneyTile('Remaining value', d.totals.remainingValue);
 
     // How long the remaining stock lasts — a per-item figure, so only shown
     // when a single item is in view (sits above the Low stock count).
@@ -901,6 +947,19 @@
 
   function tile(k, v) {
     return '<div class="tile"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + '</div></div>';
+  }
+
+  // A money tile: same shape as tile(), but the value carries the taka sign and
+  // the green money colour. Use only for currency figures — not counts or days.
+  function moneyTile(k, n) {
+    return '<div class="tile money"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(moneyV(n)) + '</div></div>';
+  }
+
+  // A tile with an explicit colour class: 'used' (red) or 'good' (green).
+  function tintedTile(k, v, cls) {
+    return '<div class="tile' + (cls ? ' ' + cls : '') + '"><div class="k">' + esc(k) + '</div>' +
       '<div class="v">' + esc(v) + '</div></div>';
   }
 </script>
