@@ -95,6 +95,17 @@ var EXPENSE_TYPE_INVENTORY = 'Inventory purchase';
  */
 var BAZAR_STATUSES = ['Paid', 'Due'];
 
+/**
+ * POS counter-reset tolerance (README §7.2, §13.A3, §13.G7).
+ *
+ * Counters run 10,000 down to 0, then restart at 10,000. After a restart the new
+ * counter is up near the baseline (it has only been decremented by that day's
+ * sales), so a rise is a legitimate reset only when the NEW value is at least
+ * this share of the baseline. Any other rise is a data-entry error, refused
+ * rather than recorded as a sale (100 -> 300 is a typo, not a reset).
+ */
+var POS_RESET_MIN_CURR_SHARE = 0.5;   // curr >= 50% of baseline = just restarted
+
 /** Item populations (README §3.3, §17.3, §13.G1). */
 var POPULATION = {
   RECIPE: 'Recipe-driven',      // consumption from Measurements x Batches

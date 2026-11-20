@@ -20,12 +20,14 @@ function installMenu_() {
   var entry = ui.createMenu('Daily entry');
   entry.addItem('Record a purchase (Bazar)', 'menuOpenBazarForm');
   entry.addItem('Record daily batches', 'menuOpenBatchForm');
+  entry.addItem('Record POS snapshot', 'menuOpenPosForm');
   entry.addItem('Record a closed day', 'menuOpenClosedDays');
   menu.addSubMenu(entry);
 
   // Summaries — read-only views over the same source records.
   var summary = ui.createMenu('Summary');
   summary.addItem('Batches / Bazar / Stock…', 'menuOpenSummary');
+  summary.addItem('Daily waffles / POS…', 'menuOpenPosForm');
   menu.addSubMenu(summary);
 
   menu.addSeparator();
@@ -92,6 +94,12 @@ function menuOpenSummary() {
 function menuOpenClosedDays() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_ClosedDays')
     .setTitle('Closed days');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenPosForm() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_POS')
+    .setTitle('POS / Daily sales');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 

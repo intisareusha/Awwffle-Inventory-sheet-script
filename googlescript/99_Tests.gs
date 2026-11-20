@@ -44,7 +44,10 @@ function runAllTests() {
     testSummaryShape,
     testBazarRateStats,
     testSummaryReadCounts,
-    testBatchCostModel
+    testBatchCostModel,
+    testPosUnitsSold,
+    testPosExportParsing,
+    testPosInvoiceDerivation
   ];
 
   var passed = 0;
@@ -1634,6 +1637,88 @@ function testBatchCostModel() {
   var empty = batchCostPerPreparationFrom_({}, {});
   eq_(s, 'empty matrix is all zeros', empty.perBatch['Batter'], 0);
   eq_(s, 'empty matrix reports nothing unpriced', empty.unpriced.length, 0);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// POS — units sold, counter resets, export parsing, invoices (README §7)
+// ---------------------------------------------------------------------------
+
+function testPosUnitsSold() {
+  var s = newSuite_();
+  var base = 10000;
+
+  var normal = computeUnitsSold_(10000, 9847, base);
+  eq_(s, 'normal sold', normal.sold, 153);
+  eq_(s, 'normal is not a reset', normal.reset, false);
+
+  eq_(s, 'no change sells zero', computeUnitsSold_(9800, 9800, base).sold, 0);
+
+  // Reset: the counter was nearly exhausted, then restarted near the baseline.
+  var reset = computeUnitsSold_(40, 9990, base);
+  eq_(s, 'reset is detected', reset.reset, true);
+  // 40 consumed on the old counter, then 10000 - 9990 = 10 on the new one.
+  eq_(s, 'reset sold = prev + (baseline - curr)', reset.sold, 50);
+
+  // Also detected from the "just restarted" side, even if prev was not tiny.
+  var reset2 = computeUnitsSold_(1200, 9600, base);
+  eq_(s, 'reset from restarted value', reset2.reset, true);
+  eq_(s, 'reset from restarted value sold', reset2.sold, 1600);
+
+  // A rise that is not a restart is refused, never recorded as a sale.
+  eq_(s, 'inconsistent rise rejected', computeUnitsSold_(100, 300, base).ok, false);
+  eq_(s, 'negative counter rejected', computeUnitsSold_(-1, 5, base).ok, false);
+  eq_(s, 'missing counter rejected', computeUnitsSold_(null, 5, base).ok, false);
+
+  return s;
+}
+
+function testPosExportParsing() {
+  var s = newSuite_();
+
+  var text = [
+    'SL.  Product  Cost  Qty  Sale  Stock Value',
+    '1    Extra Banana        5.00৳  10000  5.00৳   50,000.00৳',
+    '7    Chocolate Explosion 75.00৳ 9847   75.00৳  738,525.00৳',
+    '18   Awwffle             50.00৳ 9848   50.00৳  492,400.00৳'
+  ].join('\n');
+
+  var r = parsePosExport_(text);
+  eq_(s, 'parse ok', r.ok, true);
+  eq_(s, 'parsed three products', r.products.length, 3);
+  eq_(s, 'product name keeps its spaces', r.products[0].product, 'Extra Banana');
+  eq_(s, 'qty parsed', r.products[0].crStock, 10000);
+  eq_(s, 'qty strips commas', r.products[1].crStock, 9847);
+  eq_(s, 'cost strips taka', r.products[1].cost, 75);
+  eq_(s, 'sale read from the second-last column', r.products[2].sale, 50);
+
+  // A tab-separated spreadsheet copy works too.
+  var tabbed = 'SL.\tProduct\tCost\tQty\tSale\tStock Value\n1\tExtra Banana\t5\t9990\t5\t49950';
+  var t = parsePosExport_(tabbed);
+  eq_(s, 'tab paste ok', t.ok, true);
+  eq_(s, 'tab paste qty', t.products[0].crStock, 9990);
+
+  eq_(s, 'empty paste rejected', parsePosExport_('').ok, false);
+  eq_(s, 'header-only rejected', parsePosExport_('SL. Product Cost Qty Sale Stock Value').ok, false);
+
+  return s;
+}
+
+function testPosInvoiceDerivation() {
+  var s = newSuite_();
+
+  var prev = deriveInvoiceCount_(428, 400, null);
+  eq_(s, 'derived count', prev.count, 28);
+  eq_(s, 'derived is not first day', prev.first, false);
+
+  var first = deriveInvoiceCount_(428, null, 28);
+  eq_(s, 'first day uses the day-summary count', first.count, 28);
+  eq_(s, 'first day records its source', first.first, true);
+
+  eq_(s, 'first day without a count is refused', deriveInvoiceCount_(428, null, null).ok, false);
+  eq_(s, 'decreasing invoice number is refused', deriveInvoiceCount_(399, 400, null).ok, false);
+  eq_(s, 'missing invoice number is refused', deriveInvoiceCount_('', 400, null).ok, false);
 
   return s;
 }

@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input, select, textarea {
+      width: 100%; padding: 6px 7px; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 13px; font-family: inherit; background: #fff;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent;
+    }
+    .row { margin-bottom: 9px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid #e0e0e0; }
+    .tab {
+      padding: 7px 12px; cursor: pointer; font-size: 13px; border: none;
+      background: none; color: #5f6368; border-bottom: 2px solid transparent; font-family: inherit;
+    }
+    .tab:hover { background: #f8f9fa; }
+    .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 500; }
+
+    button { padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit; }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button:disabled { opacity: .5; cursor: default; }
+
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+
+    /* Product entry rows */
+    .prod-head, .prod-row {
+      display: grid; grid-template-columns: 1fr 62px 76px 58px; gap: 6px; align-items: center;
+    }
+    .prod-head { font-size: 10px; color: #5f6368; text-transform: uppercase;
+      letter-spacing: .3px; padding: 2px 4px 4px; }
+    .prod-head .n, .prod-row .n { text-align: right; }
+    .prod-row { padding: 4px 4px; border-top: 1px solid #f1f3f4; }
+    .prod-row .pn { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prod-row .pv { font-size: 11px; color: #5f6368; text-align: right; }
+    .prod-row input.cr { text-align: right; padding: 4px 6px; }
+    .prod-row .sold { font-size: 12px; font-weight: 600; text-align: right; color: #137333; }
+    .prod-row .sold.reset { color: #b06000; }
+    .prod-list { max-height: 320px; overflow-y: auto; }
+
+    .actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+    .actions .spacer { flex: 1; }
+
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
+           font-size: 12px; white-space: pre-wrap; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
+
+    .muted { color: #5f6368; font-size: 11px; }
+    .hidden { display: none !important; }
+
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
+    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
+    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+    .tile.wide { grid-column: 1 / -1; }
+
+    .tbl-wrap { max-height: 300px; overflow: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { position: sticky; top: 0; background: #f1f3f4; text-align: left;
+         padding: 5px 6px; font-weight: 600; font-size: 11px; color: #5f6368; }
+    td { padding: 5px 6px; border-top: 1px solid #f1f3f4; }
+    td.n, th.n { text-align: right; }
+    tr:hover td { background: #f8f9fa; }
+    .reset-tag { color: #b06000; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h2>POS / Daily sales</h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="tabs">
+    <button type="button" class="tab active" data-tab="entry">Record snapshot</button>
+    <button type="button" class="tab" data-tab="waffles">Daily waffles</button>
+  </div>
+
+  <!-- ================= ENTRY ================= -->
+  <div id="pane-entry">
+    <div class="row">
+      <label for="date">Snapshot date</label>
+      <input type="date" id="date">
+      <div id="closedNote" class="muted"></div>
+    </div>
+
+    <fieldset>
+      <legend>Paste the POS export <span class="muted">(optional — fills the counters)</span></legend>
+      <textarea id="paste" rows="3"
+        placeholder="SL.  Product  Cost  Qty  Sale  Stock Value&#10;1    Extra Banana   5.00৳  10000  5.00৳  50,000.00৳"></textarea>
+      <div class="actions" style="margin-top:6px">
+        <span class="spacer"></span>
+        <button type="button" id="parse">Fill from paste</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Cr. Stock (the only figure you type)</legend>
+      <div class="prod-head">
+        <span>Product</span><span class="n">Prev</span><span class="n">Cr. Stock</span><span class="n">Sold</span>
+      </div>
+      <div class="prod-list" id="prodRows"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Invoice (optional)</legend>
+      <div class="grid2 row">
+        <div>
+          <label for="lastInvoice">Last invoice no. from POS</label>
+          <input type="number" id="lastInvoice" min="0" step="1" placeholder="e.g. 428">
+        </div>
+        <div id="countWrap">
+          <label for="invoiceCount">Invoices today (first day only)</label>
+          <input type="number" id="invoiceCount" min="0" step="1" placeholder="null">
+        </div>
+      </div>
+      <div class="muted" id="invHint"></div>
+    </fieldset>
+
+    <div class="row">
+      <label for="notes">Notes (optional)</label>
+      <input type="text" id="notes" placeholder="e.g. corrected after a mis-paste">
+    </div>
+
+    <div class="actions">
+      <span>Total sold: <strong id="totalSold">0</strong></span>
+      <span class="spacer"></span>
+      <button type="button" id="save" class="primary">Save snapshot</button>
+    </div>
+  </div>
+
+  <!-- ================= DAILY WAFFLES ================= -->
+  <div id="pane-waffles" class="hidden">
+    <div class="grid2 row">
+      <div><label for="wFrom">From</label><input type="date" id="wFrom"></div>
+      <div><label for="wTo">To</label><input type="date" id="wTo"></div>
+    </div>
+    <div class="grid2 row">
+      <div>
+        <label for="wKind">Kind</label>
+        <select id="wKind">
+          <option value="">(waffles and extras)</option>
+          <option value="waffle">Waffles only</option>
+          <option value="extra">Extras only</option>
+        </select>
+      </div>
+      <div><label for="wProduct">Item</label><select id="wProduct"></select></div>
+    </div>
+    <button type="button" class="primary" id="wRun" style="width:100%">Show sales</button>
+    <div id="waffleOut" style="margin-top:10px"></div>
+  </div>
+
+<script>
+  var OPTIONS = null;
+  var PANEL = null;
+  var ROWS = [];        // [{ product, prev, baseline, cost, sale, input }]
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function fmt(n) {
+    if (n === '' || n === null || n === undefined) return '—';
+    return Number(n).toLocaleString(undefined, { maximumFractionDigits: 3 });
+  }
+  function money(n) {
+    if (n === '' || n === null || n === undefined) return '—';
+    return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function showMsg(text, kind) {
+    var el = $('msg');
+    el.className = 'msg ' + (kind || 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+  function hideMsg() { $('msg').style.display = 'none'; }
+
+  // ---- Tabs ----
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.getAttribute('data-tab');
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+        b.className = 'tab' + (b === btn ? ' active' : '');
+      });
+      $('pane-entry').className = tab === 'entry' ? '' : 'hidden';
+      $('pane-waffles').className = tab === 'waffles' ? '' : 'hidden';
+      if (tab === 'waffles' && !$('waffleOut').innerHTML) runWaffles();
+    });
+  });
+
+  // ---- Entry: render and recalc ----
+  function renderRows(products) {
+    var box = $('prodRows');
+    box.innerHTML = '';
+    ROWS = [];
+
+    products.forEach(function (p) {
+      var row = document.createElement('div');
+      row.className = 'prod-row';
+
+      var name = document.createElement('span');
+      name.className = 'pn';
+      name.textContent = p.name;
+
+      var prev = document.createElement('span');
+      prev.className = 'pv';
+      prev.textContent = fmt(p.prev);
+
+      var input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'cr';
+      input.min = '0';
+      input.step = '1';
+      input.setAttribute('data-product', p.name);
+      input.value = (p.current === '' || p.current === null || p.current === undefined) ? '' : p.current;
+
+      var sold = document.createElement('span');
+      sold.className = 'sold';
+      sold.textContent = '—';
+
+      input.addEventListener('input', recalc);
+
+      row.appendChild(name);
+      row.appendChild(prev);
+      row.appendChild(input);
+      row.appendChild(sold);
+      box.appendChild(row);
+
+      ROWS.push({
+        product: p.name,
+        prev: p.prev,
+        baseline: p.baseline || 10000,
+        cost: p.cost,
+        sale: p.sale,
+        input: input,
+        soldEl: sold
+      });
+    });
+  }
+
+  // Same rule as the server, for a live preview only; the server is authoritative.
+  function computeSold(prev, curr, baseline) {
+    if (curr === '' || curr === null || curr === undefined) return { sold: null, reset: false };
+    var p = Number(prev);
+    var c = Number(curr);
+    var base = Number(baseline) || 10000;
+    if (isNaN(p) || isNaN(c)) return { sold: null, reset: false };
+    if (c <= p) return { sold: p - c, reset: false };
+    var okReset = c >= base * 0.5;   // must match computeUnitsSold_ on the server
+    return { sold: okReset ? p + (base - c) : null, reset: okReset };
+  }
+
+  function recalc() {
+    var total = 0;
+    ROWS.forEach(function (r) {
+      var raw = r.input.value;
+      var res = computeSold(r.prev, raw === '' ? '' : Number(raw), r.baseline);
+      if (res.sold === null) {
+        r.soldEl.textContent = '—';
+        r.soldEl.className = 'sold';
+      } else {
+        r.soldEl.textContent = fmt(res.sold);
+        r.soldEl.className = 'sold' + (res.reset ? ' reset' : '');
+        total += res.sold;
+      }
+    });
+    $('totalSold').textContent = fmt(Math.round(total * 1000) / 1000);
+  }
+
+  function loadDate() {
+    var date = $('date').value;
+    if (!date) return;
+    hideMsg();
+    $('save').disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function (panel) {
+        $('save').disabled = false;
+        if (!panel || !panel.ok) {
+          showMsg((panel && panel.errors ? panel.errors.join('\n') : 'Could not load that date.'), 'error');
+          return;
+        }
+        PANEL = panel;
+        renderRows(panel.products);
+        recalc();
+
+        $('closedNote').textContent = panel.isClosedDay
+          ? 'This date is recorded as a closed day. Saving is still allowed.'
+          : '';
+
+        var inv = panel.invoice || {};
+        var existing = inv.existing;
+        $('lastInvoice').value = existing && existing.lastInvoiceNo !== null ? existing.lastInvoiceNo : '';
+        $('countWrap').className = (inv.prevLast === null) ? '' : 'hidden';
+        $('invoiceCount').value = existing && existing.invoiceCount !== null ? existing.invoiceCount : '';
+        $('invHint').textContent = inv.prevLast === null
+          ? (existing ? 'First daily invoice already recorded for this date.' :
+             'No earlier invoice number exists yet — enter the count from the POS day summary.')
+          : 'Daily count will be derived from the previous last invoice (' + inv.prevLast + ').';
+      })
+      .withFailureHandler(function (err) {
+        $('save').disabled = false;
+        showMsg('Could not load that date: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .getPosDatePanel(date);
+  }
+
+  function parsePaste() {
+    var text = $('paste').value;
+    if (!text.trim()) { showMsg('Paste the POS export first.', 'warn'); return; }
+
+    $('parse').disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('parse').disabled = false;
+        if (!res.ok) { showMsg(res.errors.join('\n'), 'error'); return; }
+
+        var byName = {};
+        res.products.forEach(function (p) { byName[p.product.toLowerCase()] = p; });
+
+        var filled = 0;
+        ROWS.forEach(function (r) {
+          var hit = byName[String(r.product).toLowerCase()];
+          if (!hit) return;
+          r.input.value = hit.crStock;
+          if (hit.cost !== null && hit.cost !== undefined) r.cost = hit.cost;
+          if (hit.sale !== null && hit.sale !== undefined) r.sale = hit.sale;
+          filled++;
+        });
+
+        recalc();
+        var kind = filled === ROWS.length ? 'ok' : 'warn';
+        showMsg('Filled ' + filled + ' of ' + ROWS.length + ' products from the paste.' +
+          (filled < ROWS.length ? '\nThe remaining rows need a value before saving.' : ''), kind);
+      })
+      .withFailureHandler(function (err) {
+        $('parse').disabled = false;
+        showMsg('Could not read the paste: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .parsePosExport(text);
+  }
+
+  function collect() {
+    var products = ROWS.map(function (r) {
+      return {
+        product: r.product,
+        crStock: r.input.value,
+        cost: r.cost,
+        sale: r.sale
+      };
+    });
+
+    var payload = {
+      date: $('date').value,
+      notes: $('notes').value,
+      products: products
+    };
+
+    if ($('lastInvoice').value !== '') {
+      payload.invoice = {
+        lastInvoiceNo: $('lastInvoice').value,
+        invoiceCount: $('invoiceCount').value
+      };
+    }
+    return payload;
+  }
+
+  function save() {
+    hideMsg();
+    $('save').disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('save').disabled = false;
+        if (!res || !res.ok) {
+          showMsg(res && res.errors ? res.errors.join('\n') : 'Save failed.', 'error');
+          return;
+        }
+        var text = res.message;
+        if (res.resets && res.resets.length) {
+          text += '\nCounter reset handled silently (positive sales, total preserved).';
+        }
+        showMsg(text, res.resets && res.resets.length ? 'warn' : 'ok');
+        $('paste').value = '';
+        loadDate();
+      })
+      .withFailureHandler(function (err) {
+        $('save').disabled = false;
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .savePosSnapshot(collect());
+  }
+
+  // ---- Daily waffles ----
+  function populateWaffleProducts() {
+    var sel = $('wProduct');
+    sel.innerHTML = '';
+    var all = document.createElement('option');
+    all.value = ''; all.textContent = '(all items)';
+    sel.appendChild(all);
+
+    var groups = { waffle: [], extra: [] };
+    (OPTIONS.products || []).forEach(function (p) {
+      (groups[p.kind] || (groups[p.kind] = [])).push(p);
+    });
+
+    [['waffle', 'Waffles'], ['extra', 'Extras']].forEach(function (pair) {
+      var list = groups[pair[0]] || [];
+      if (!list.length) return;
+      var og = document.createElement('optgroup');
+      og.label = pair[1];
+      list.forEach(function (p) {
+        var o = document.createElement('option');
+        o.value = p.name; o.textContent = p.name;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+  }
+
+  function runWaffles() {
+    $('wRun').disabled = true;
+    var filters = { product: $('wProduct').value, kind: $('wKind').value };
+
+    google.script.run
+      .withSuccessHandler(function (d) {
+        $('wRun').disabled = false;
+        renderWaffles(d);
+      })
+      .withFailureHandler(function (err) {
+        $('wRun').disabled = false;
+        showMsg('Could not load sales: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .getDailyWaffles($('wFrom').value, $('wTo').value, filters);
+  }
+
+  function renderWaffles(d) {
+    if (!d.rowCount) {
+      $('waffleOut').innerHTML = '<div class="muted">No snapshots in this range.</div>';
+      return;
+    }
+
+    var tiles = '<div class="tiles">' +
+      '<div class="tile wide"><div class="k">Units sold</div>' +
+        '<div class="v">' + fmt(d.totalUnits) + '</div></div>' +
+      '<div class="tile"><div class="k">Revenue (at POS sale price)</div>' +
+        '<div class="v">৳' + money(d.totalRevenue) + '</div></div>' +
+      '<div class="tile"><div class="k">Items</div><div class="v">' + d.byProduct.length + '</div></div>' +
+      '</div>';
+
+    var rows = '';
+    d.byProduct.forEach(function (x) {
+      rows += '<tr><td>' + esc(x.product) + '</td><td>' + esc(x.kind) + '</td>' +
+        '<td class="n">' + fmt(x.units) + '</td>' +
+        '<td class="n">৳' + money(x.revenue) + '</td></tr>';
+    });
+
+    var table = '<div class="tbl-wrap"><table><thead><tr>' +
+      '<th>Product</th><th>Kind</th><th class="n">Units</th><th class="n">Revenue</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+    $('waffleOut').innerHTML = tiles + table;
+  }
+
+  // ---- Bootstrap ----
+  try {
+    (function setLocalToday() {
+      var now = new Date();
+      var m = now.getMonth() + 1, d = now.getDate();
+      var key = now.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+      $('date').value = key;
+      $('wTo').value = key;
+    })();
+
+    $('date').addEventListener('change', loadDate);
+    $('save').addEventListener('click', save);
+    $('parse').addEventListener('click', parsePaste);
+    $('wRun').addEventListener('click', runWaffles);
+    $('wKind').addEventListener('change', runWaffles);
+    $('wProduct').addEventListener('change', runWaffles);
+
+    google.script.run
+      .withSuccessHandler(function (opts) {
+        OPTIONS = opts;
+        $('date').value = opts.today || $('date').value;
+        $('wFrom').value = opts.dataStart || $('date').value;
+        $('wTo').value = opts.dataEnd || opts.today || $('date').value;
+        populateWaffleProducts();
+        loadDate();
+        // After loadDate (which clears the message), so a first-run note survives.
+        if (opts.snapshotCount === 0) {
+          showMsg('No snapshots recorded yet. Paste today\'s POS export to begin.', 'ok');
+        }
+      })
+      .withFailureHandler(function (err) {
+        showMsg('POS is not ready: ' + (err && err.message ? err.message : err) +
+          '\nRun Awwffle > Setup / Update structure once.', 'error');
+      })
+      .getPosEntryOptions();
+  } catch (e) {
+    showMsg('The form failed to start: ' + e.message, 'error');
+  }
+</script>
+</body>
+</html>
