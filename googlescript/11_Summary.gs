@@ -542,13 +542,28 @@ function bazarRateStats_(itemName, amount, baseQty, lastRate, lastDate, lines) {
   var qty = toNumber_(baseQty);
   var spent = toNumber_(amount) || 0;
 
+  // Quantity in the unit the owner buys in (kg / l / pieces), plus the base-unit
+  // total (gm / ml / pieces). The base figure is only worth a second tile when it
+  // differs from the display unit — "how many pieces AND how many grams" for
+  // Nutella, "how many kg AND total grams" for Flour, but just "pieces" for Egg.
+  // baseMultiplier_ maps display -> base, so dividing goes back the other way.
+  var factor = baseMultiplier_(item.unit, item.perPieceWeight);
+  var displayQty = (qty === null || !factor) ? '' : round2_(qty / factor);
+
   return {
     item: itemName,
     avgRate: qty > 0 ? round2_(entryRateFromPerBase_(item, spent / qty)) : '',
     lastRate: lastRate === null || lastRate === undefined ? '' : round2_(lastRate),
     lastDate: lastDate || '',
     purchaseCount: Number(lines) || 0,
-    rateUnit: item.unit
+    rateUnit: item.unit,
+    quantity: {
+      value: displayQty,
+      unit: item.unit,
+      baseValue: qty === null ? '' : round2_(qty),
+      baseUnit: item.baseUnit,
+      showBase: item.unit !== item.baseUnit
+    }
   };
 }
 

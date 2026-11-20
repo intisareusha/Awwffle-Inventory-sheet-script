@@ -181,6 +181,12 @@
     var v = Number(n);
     return Math.round(v * 100) / 100;
   }
+  // Quantities (kg / grams / pieces) read better with separators and no forced
+  // decimals: "20,300 gm", not "20300" or "20300.00".
+  function qty(n) {
+    if (n === '' || n === null || n === undefined) return '—';
+    return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
   function esc(s) {
     return String(s === null || s === undefined ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -721,7 +727,6 @@
         '<div class="v">' + money(d.total) + '</div></div>' +
       tile('Total items', d.itemCount) +
       tile('Invoices', d.invoices.length) +
-      tile('Purchase lines', d.count) +
       statusTiles +
       '</div>';
 
@@ -730,18 +735,33 @@
     var stats = d.itemStats;
     if (stats) {
       var rateUnit = stats.rateUnit ? ' / ' + esc(stats.rateUnit) : '';
-      var cheaper = '';
-      if (stats.lastRate !== '' && stats.avgRate !== '') {
-        cheaper = stats.lastRate > stats.avgRate ? ' paying more than average'
-          : (stats.lastRate < stats.avgRate ? ' paying less than average' : ' at the average');
+
+      // The latest rate carries a direction arrow against the average instead of a
+      // sentence: red ▲ means you just paid more than usual, green ▼ means less.
+      var arrow = '';
+      if (stats.lastRate !== '' && stats.avgRate !== '' && stats.lastRate !== stats.avgRate) {
+        arrow = stats.lastRate > stats.avgRate
+          ? ' <span class="up">▲</span>'
+          : ' <span class="down">▼</span>';
       }
+
+      // Quantity bought: in the buying unit, plus the base-unit total when it
+      // differs (Nutella -> pieces + grams, Flour -> kg + grams, Egg -> pieces only).
+      var q = stats.quantity;
+      var qtyTiles = '';
+      if (q && q.value !== '' && q.value !== null) {
+        qtyTiles += tile('Purchased quantity', qty(q.value) + ' ' + q.unit);
+        if (q.showBase) {
+          qtyTiles += tile('Total ' + q.baseUnit, qty(q.baseValue) + ' ' + q.baseUnit);
+        }
+      }
+
       tiles += '<div class="tiles">' +
         tile('Avg rate' + rateUnit, money(stats.avgRate)) +
-        tile('Last purchase rate' + rateUnit, money(stats.lastRate)) +
-        tile('Last bought', stats.lastDate || '—') +
-        '</div>' +
-        (cheaper ? '<div class="muted" style="margin-bottom:9px">' +
-          esc(stats.item) + ' is' + cheaper + '.</div>' : '');
+        '<div class="tile money"><div class="k">Last rate' + rateUnit + '</div>' +
+          '<div class="v">' + money(stats.lastRate) + arrow + '</div></div>' +
+        qtyTiles +
+        '</div>';
     }
 
     var typeRows = '';
