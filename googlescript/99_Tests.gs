@@ -47,7 +47,9 @@ function runAllTests() {
     testBatchCostModel,
     testPosUnitsSold,
     testPosExportParsing,
-    testPosInvoiceDerivation
+    testPosInvoiceDerivation,
+    testManualCounts,
+    testFinance
   ];
 
   var passed = 0;
@@ -1719,6 +1721,160 @@ function testPosInvoiceDerivation() {
   eq_(s, 'first day without a count is refused', deriveInvoiceCount_(428, null, null).ok, false);
   eq_(s, 'decreasing invoice number is refused', deriveInvoiceCount_(399, 400, null).ok, false);
   eq_(s, 'missing invoice number is refused', deriveInvoiceCount_('', 400, null).ok, false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Physical stock counts — README §13.C26, §3.3
+// ---------------------------------------------------------------------------
+
+/**
+ * A count is a set-to statement, and everything after it applies on top. These
+ * tests pin the rule itself, so a later refactor cannot quietly turn a count into
+ * an additive usage row — which would double-count every item that is recounted.
+ */
+function testManualCounts() {
+  var s = newSuite_();
+
+  // No count: remaining is just available minus usage. Unchanged behaviour.
+  eq_(s, 'no count leaves remaining alone', round2_(remainingAfterCount_(
+    null, 0, 0, 0)), 0);
+
+  // Count 60, nothing moved since -> 60 left.
+  eq_(s, 'count with no movement', round2_(remainingAfterCount_(60, 0, 0, 0)), 60);
+
+  // Counted 60, then bought 24 -> 84.
+  eq_(s, 'purchase after count adds', round2_(remainingAfterCount_(60, 24, 0, 0)), 84);
+
+  // Counted 60, then used 12 -> 48.
+  eq_(s, 'usage after count subtracts', round2_(remainingAfterCount_(60, 0, 12, 0)), 48);
+
+  // Water: a POS sale after the count consumes one piece.
+  eq_(s, 'resale sale after count subtracts', round2_(remainingAfterCount_(24, 0, 0, 3)), 21);
+
+  // Both directions at once, which is the real weekly case.
+  eq_(s, 'mixed movement after count',
+    round2_(remainingAfterCount_(100, 50, 30, 20)), 100);
+
+  // Found stock (an In row) is negative net-Out, so it adds back.
+  eq_(s, 'found stock adds back', round2_(remainingAfterCount_(40, 0, -5, 0)), 45);
+
+  // A count is never allowed to make the count itself negative.
+  eq_(s, 'zero count is legal', round2_(remainingAfterCount_(0, 0, 0, 0)), 0);
+
+  // Units: a piece item must not accept kg. The filter is by base unit.
+  var oreo = findItem_('Oreo');
+  var polyBag = findItem_('Poly bag');
+  var flour = findItem_('Flour');
+
+  eq_(s, 'Oreo counts in pieces only',
+    allowedUnitsForItem_(oreo).join('|'), 'p');
+  eq_(s, 'Poly bag counts in weight only',
+    allowedUnitsForItem_(polyBag).join('|'), 'kg|gm');
+  eq_(s, 'Flour is not countable', isCountableItem_(flour), false);
+  eq_(s, 'Oreo is countable', isCountableItem_(oreo), true);
+  eq_(s, 'Water (resale) is countable', isCountableItem_(findItem_('Water')), true);
+  eq_(s, 'Nutella (recipe) is not countable', isCountableItem_(findItem_('Nutella')), false);
+
+  // The sidebar calls these by name through google.script.run, so they must stay
+  // public (no trailing underscore).
+  eq_(s, 'getManualStockPanel is public', typeof getManualStockPanel, 'function');
+  eq_(s, 'getManualStockState is public', typeof getManualStockState, 'function');
+  eq_(s, 'saveManualStockCount is public', typeof saveManualStockCount, 'function');
+  eq_(s, 'deleteManualStockCount is public', typeof deleteManualStockCount, 'function');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Finance — discounts, dues and cash in hand (README §8.1, §13.B14, §13.B16)
+// ---------------------------------------------------------------------------
+
+function testFinance() {
+  var s = newSuite_();
+
+  // ---- Date filtering is inclusive at both ends ----
+  eq_(s, 'in range inside', inDateRange_('2026-11-05', '2026-11-01', '2026-11-10'), true);
+  eq_(s, 'in range at start', inDateRange_('2026-11-01', '2026-11-01', '2026-11-10'), true);
+  eq_(s, 'in range at end', inDateRange_('2026-11-10', '2026-11-01', '2026-11-10'), true);
+  eq_(s, 'in range before', inDateRange_('2026-10-31', '2026-11-01', '2026-11-10'), false);
+  eq_(s, 'in range open start', inDateRange_('2026-01-01', '', '2026-11-10'), true);
+  eq_(s, 'in range open end', inDateRange_('2030-01-01', '2026-11-01', ''), true);
+
+  // ---- Discounts: one amount per day, summed by range ----
+  var discounts = [
+    { date: '2026-10-31', amount: 25 },
+    { date: '2026-11-01', amount: 100 },
+    { date: '2026-11-05', amount: 50 }
+  ];
+  eq_(s, 'discount sum all', sumDiscountsInRange_(discounts, '', ''), 175);
+  eq_(s, 'discount sum November', sumDiscountsInRange_(discounts, '2026-11-01', '2026-11-30'), 150);
+  eq_(s, 'discount sum one day', sumDiscountsInRange_(discounts, '2026-11-05', '2026-11-05'), 50);
+  eq_(s, 'discount sum empty range', sumDiscountsInRange_(discounts, '2026-12-01', '2026-12-31'), 0);
+
+  // ---- Dues: only Outstanding reduces cash ----
+  var dues = [
+    { date: '2026-11-01', amount: 200, status: 'Outstanding' },
+    { date: '2026-11-02', amount: 100, status: 'Paid' },
+    { date: '2026-11-03', amount: 50, status: 'Outstanding' }
+  ];
+  eq_(s, 'dues outstanding only', sumDuesInRange_(dues, '', '', true), 250);
+  eq_(s, 'dues accrued all', sumDuesInRange_(dues, '', '', false), 350);
+  eq_(s, 'paid due is excluded from outstanding',
+    sumDuesInRange_([dues[1]], '', '', true), 0);
+
+  // ---- Cash in hand: gross − discount − outstanding due − bazar ----
+  eq_(s, 'cash in hand basic', cashInHand_(1000, 100, 50, 200), 650);
+  eq_(s, 'cash in hand no deductions', cashInHand_(1000, 0, 0, 0), 1000);
+  eq_(s, 'cash in hand discount once', cashInHand_(1000, 100, 0, 0), 900);
+  eq_(s, 'cash in hand negative allowed', cashInHand_(100, 150, 0, 0), -50);
+
+  // The owner's rule: paying a due removes it from the deduction (cash rises);
+  // deleting an outstanding due does the same thing.
+  var beforePay = cashInHand_(1000, 0, sumDuesInRange_(dues, '', '', true), 0);
+  // Mark dues[0] paid: it leaves the outstanding set, leaving only dues[2] (50).
+  var afterPay = cashInHand_(1000, 0, sumDuesInRange_([dues[2]], '', '', true), 0);
+  eq_(s, 'paying a due raises cash', afterPay, 950);
+  eq_(s, 'outstanding due reduced cash first', beforePay, 750);
+
+  // ---- Helpers ----
+  eq_(s, 'customer identity is case/space insensitive',
+    normaliseCustomer_('  Riyad '), normaliseCustomer_('riyad'));
+  eq_(s, 'due statuses are Outstanding/Paid', DUE_STATUSES.join('|'), 'Outstanding|Paid');
+
+  var extent = recordDateExtent_([
+    { date: '2026-11-05' }, { date: '2026-11-01' }, { date: '2026-11-09' }
+  ]);
+  eq_(s, 'extent start', extent.start, '2026-11-01');
+  eq_(s, 'extent end', extent.end, '2026-11-09');
+
+  // ---- Seed and schema ----
+  eq_(s, 'nine seeded customers', DUE_CUSTOMER_SEED.length, 9);
+  eq_(s, 'seed has Riyad', DUE_CUSTOMER_SEED.indexOf('Riyad') !== -1, true);
+  eq_(s, 'seed has Delivery', DUE_CUSTOMER_SEED.indexOf('Delivery') !== -1, true);
+  eq_(s, 'Discounts sheet named', SHEETS.DISCOUNTS, 'Discounts');
+  eq_(s, 'Dues sheet named', SHEETS.DUES, 'Dues');
+  eq_(s, 'Customers sheet named', SHEETS.CUSTOMERS, 'Customers');
+  eq_(s, 'Discounts has an Amount column',
+    SCHEMA[SHEETS.DISCOUNTS].indexOf('Amount') !== -1, true);
+  eq_(s, 'Dues has a Status column',
+    SCHEMA[SHEETS.DUES].indexOf('Status') !== -1, true);
+  eq_(s, 'source order includes Dues',
+    sourceSheetOrder_().indexOf(SHEETS.DUES) !== -1, true);
+
+  // ---- Public boundary (no trailing underscore) ----
+  eq_(s, 'getDiscountPanel is public', typeof getDiscountPanel, 'function');
+  eq_(s, 'getDiscountList is public', typeof getDiscountList, 'function');
+  eq_(s, 'saveDiscount is public', typeof saveDiscount, 'function');
+  eq_(s, 'deleteDiscount is public', typeof deleteDiscount, 'function');
+  eq_(s, 'getDuePanel is public', typeof getDuePanel, 'function');
+  eq_(s, 'getDueList is public', typeof getDueList, 'function');
+  eq_(s, 'saveDue is public', typeof saveDue, 'function');
+  eq_(s, 'setDuePaid is public', typeof setDuePaid, 'function');
+  eq_(s, 'deleteDue is public', typeof deleteDue, 'function');
+  eq_(s, 'saveDiscount has no trailing _', /_$/.test('saveDiscount'), false);
+  eq_(s, 'saveDue has no trailing _', /_$/.test('saveDue'), false);
 
   return s;
 }

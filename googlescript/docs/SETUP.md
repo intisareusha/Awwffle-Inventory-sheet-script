@@ -74,7 +74,7 @@ click **Run**.
 - The first run asks for authorisation. Choose your account → **Advanced** →
   **Go to (project name) (unsafe)** → **Allow**. This is normal for personal
   scripts Google has not reviewed.
-- Look at **Execution log**. You want **106 passed, 0 failed**.
+- Look at **Execution log**. You want **495 passed, 0 failed**.
 
 At this point no sheet has been touched — the tests only check the code itself.
 
@@ -82,15 +82,21 @@ At this point no sheet has been touched — the tests only check the code itself
 
 Choose `runSetup` from the function dropdown and click **Run**.
 
-You should see a toast: *"Setup complete. 16 created, 0 unchanged, 7 seeded"*.
+You should see a toast like *"Setup complete. 19 created, 0 unchanged, 16 seeded"*.
+The exact counts depend on what already exists — the important part is that it says
+**complete**, not that the numbers match a screenshot.
 
 ### 8. Check the result
 
 Your sheet now has these tabs, in this order:
 
 `Settings · ExpenseTypes · ItemMaster · Measurements · Batches · Bazar ·
-POS_Products · POS_Snapshots · PriceHistory · Invoices · DiscountDue ·
-ClosedDays · Adjustments · Stock · DailyWaffles · AllTime`
+POS_Products · POS_Snapshots · PriceHistory · Invoices · Discounts · Dues ·
+Customers · DiscountDue · ClosedDays · Adjustments · Stock · DailyWaffles · AllTime`
+
+`Discounts`, `Dues` and `Customers` are the daily discount/due records and the
+customer dropdown. `DiscountDue` is kept only as the migration's old monthly
+aggregates; the finance figures no longer read it.
 
 Confirm:
 

@@ -118,6 +118,41 @@ records revenue — you enter the usage when a can finishes.
 
 ---
 
+## Recording a manual stock count
+
+For Toppings and Equipments the honest figure is the one you can see on the shelf.
+**Awwffle → Daily entry → Record manual stock count** records it.
+
+1. Pick the group (Toppings or Equipments) and the item.
+2. Enter what is actually left, in the item's own unit.
+3. Save. The count is written to `Adjustments` as a `Count` row and the Stock view
+   is rebuilt.
+
+A count is a **set-to** statement, not a usage figure: "on this date, this much was
+left". Usage is derived from it:
+
+```
+remaining = counted + purchases after the count − movement after the count
+used      = total available − remaining
+```
+
+So a purchase the next day raises the balance and a later sale lowers it, without
+touching the count itself.
+
+- **Re-counting the same item on the same date** replaces that day's row instead of
+  adding a second one.
+- **Deleting a count** falls back to the previous count, or to recorded usage when
+  there is none.
+- **Water is resale**: POS sales after the count keep reducing it, so a count
+  reconciles POS drift rather than replacing it.
+- Recipe-driven items are not offered. Their usage comes from Measurements ×
+  Batches, and a count would contradict that model.
+
+**Never type into the Stock tab.** It is rebuilt from these records, so a typed
+number is silently lost on the next refresh.
+
+---
+
 ## How stock is valued
 
 **Weighted average cost** (§6.2.1). Not the latest price, not a typed rate.

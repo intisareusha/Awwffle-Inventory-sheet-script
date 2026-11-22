@@ -165,8 +165,10 @@ SCHEMA[SHEETS.MIGRATION_REPORT] = [
 ];
 
 /**
- * DiscountDue — one dated daily total each (README §13.G3, §13.B14, §13.B16).
- * Not per-invoice records, because the POS supplies no per-sale identity.
+ * DiscountDue — LEGACY monthly aggregates from migration.
+ *
+ * Kept only as an audit artifact: finance reads Discounts/Dues instead, so the
+ * old monthly lumps cannot double-count the daily entries the owner now makes.
  */
 SCHEMA[SHEETS.DISCOUNT_DUE] = [
   'Date',
@@ -177,6 +179,42 @@ SCHEMA[SHEETS.DISCOUNT_DUE] = [
   'Source',             // Daily | Monthly aggregate (migration only)
   'Entered At',
   'Notes'
+];
+
+/**
+ * Discounts — ONE dated daily amount (README §8.1, §13.B14).
+ * Saving the same date corrects that day rather than adding a second row, so the
+ * day's discount can never be counted twice.
+ */
+SCHEMA[SHEETS.DISCOUNTS] = [
+  'Discount ID',
+  'Date',
+  'Amount',
+  'Notes',
+  'Entered At'
+];
+
+/**
+ * Dues — one row per customer amount owed (README §13.B16).
+ * `Status` decides whether the money is still outstanding (and therefore reduces
+ * cash in hand) or has been paid. `Paid Date` records when it came back.
+ */
+SCHEMA[SHEETS.DUES] = [
+  'Due ID',
+  'Date',
+  'Customer',
+  'Amount',
+  'Status',             // Outstanding | Paid
+  'Paid Date',
+  'Notes',
+  'Entered At'
+];
+
+/** Customers — dropdown list for dues; new names are appended on first use. */
+SCHEMA[SHEETS.CUSTOMERS] = [
+  'Customer',
+  'Active',
+  'Note'
 ];
 
 /**
@@ -289,6 +327,9 @@ function sourceSheetOrder_() {
     SHEETS.POS_SNAPSHOTS,
     SHEETS.PRICE_HISTORY,
     SHEETS.INVOICES,
+    SHEETS.DISCOUNTS,
+    SHEETS.DUES,
+    SHEETS.CUSTOMERS,
     SHEETS.DISCOUNT_DUE,
     SHEETS.CLOSED_DAYS,
     SHEETS.ADJUSTMENTS,

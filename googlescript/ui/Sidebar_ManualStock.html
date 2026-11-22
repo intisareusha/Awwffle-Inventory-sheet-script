@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input, select {
+      width: 100%; padding: 6px 7px; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 13px; font-family: inherit; background: #fff;
+    }
+    input:focus, select:focus {
+      outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent;
+    }
+    .row { margin-bottom: 9px; }
+    button { padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit; }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button.remove { color: #c5221f; border-color: #f5c6c2; padding: 3px 8px; font-size: 11px; }
+    button.remove:hover { background: #fce8e6; }
+    button:disabled { opacity: .5; cursor: default; }
+
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
+           font-size: 12px; white-space: pre-wrap; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
+
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
+    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
+    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+
+    .count-row { display: flex; gap: 6px; }
+    .count-row input { flex: 1; text-align: right; font-size: 15px; }
+    .count-row select { width: 78px; flex: none; }
+
+    .preview { font-size: 12px; margin-top: 8px; padding: 7px 9px; border-radius: 4px;
+      background: #f8f9fa; color: #3c4043; }
+    .preview.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
+    .preview.muted { background: transparent; color: #5f6368; padding: 4px 0; }
+
+    .list { max-height: 210px; overflow-y: auto; }
+    .day-row {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 8px; padding: 6px 4px; border-bottom: 1px solid #f1f3f4; font-size: 12px;
+    }
+    .day-row:last-child { border-bottom: none; }
+    .day-row .d { font-weight: 500; white-space: nowrap; }
+    .day-row .r { color: #5f6368; flex: 1; font-size: 11px; }
+    .muted { color: #5f6368; font-size: 11px; }
+    .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
+      text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
+  </style>
+</head>
+<body>
+  <h2>Record manual stock</h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="row">
+    <label for="group">Group</label>
+    <select id="group"></select>
+  </div>
+
+  <div class="row">
+    <label for="item">Item</label>
+    <select id="item"></select>
+  </div>
+
+  <div class="row">
+    <label for="date">Count date</label>
+    <input type="date" id="date">
+  </div>
+
+  <div id="tiles" class="tiles"></div>
+
+  <fieldset>
+    <legend>What is on the shelf?</legend>
+    <div class="count-row">
+      <input type="number" id="counted" step="any" min="0" placeholder="0">
+      <select id="unit"></select>
+    </div>
+    <div id="preview" class="preview muted"></div>
+  </fieldset>
+
+  <div class="row">
+    <label for="reason">Reason (optional)</label>
+    <input type="text" id="reason" placeholder="e.g. weekly count, wastage">
+  </div>
+
+  <button type="button" id="save" class="primary" style="width:100%">Save count</button>
+
+  <fieldset style="margin-top:12px">
+    <legend>Counts recorded for this item</legend>
+    <div id="history" class="list"></div>
+  </fieldset>
+
+  <div class="muted" style="margin-top:10px">
+    The Stock tab is calculated. A count is saved as an adjustment and the view is
+    rebuilt from it — typing into the Stock row directly would be overwritten.
+  </div>
+
+<script>
+  var PANEL = null;
+  var STATE = null;
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function fmt(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    var n = Number(v);
+    if (!isFinite(n)) return esc(v);
+    return String(Math.round(n * 100) / 100);
+  }
+
+  function showMsg(text, kind) {
+    var el = $('msg');
+    el.className = 'msg ' + (kind || 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  function hideMsg() { $('msg').style.display = 'none'; }
+
+  function currentItem() {
+    if (!PANEL || !PANEL.items) return null;
+    var name = $('item').value;
+    for (var i = 0; i < PANEL.items.length; i++) {
+      if (PANEL.items[i].name === name) return PANEL.items[i];
+    }
+    return null;
+  }
+
+  /** Base-unit multiplier for a unit, matching 00_Config's UNIT_RULES. */
+  function unitFactor(unit) {
+    var item = currentItem();
+    var perPiece = item && item.perPieceWeight ? Number(item.perPieceWeight) : null;
+
+    if (unit === 'p') return (perPiece && perPiece > 1) ? perPiece : 1;
+    if (unit === 'kg' || unit === 'l') return 1000;
+    return 1;
+  }
+
+  function renderGroups() {
+    var sel = $('group');
+    sel.innerHTML = '';
+
+    var groups = (PANEL && PANEL.groups) || [];
+    for (var i = 0; i < groups.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = groups[i];
+      opt.textContent = groups[i];
+      sel.appendChild(opt);
+    }
+  }
+
+  function renderItems() {
+    var sel = $('item');
+    sel.innerHTML = '';
+
+    var group = $('group').value;
+    var items = (PANEL && PANEL.items) || [];
+
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].group !== group) continue;
+      var opt = document.createElement('option');
+      opt.value = items[i].name;
+      opt.textContent = items[i].name;
+      sel.appendChild(opt);
+    }
+
+    renderUnits();
+    loadState();
+  }
+
+  function renderUnits() {
+    var item = currentItem();
+    var sel = $('unit');
+    sel.innerHTML = '';
+    $('counted').value = '';
+
+    // Switching item must not leave the previous item's tiles on screen while the
+    // new state loads.
+    STATE = null;
+    $('tiles').innerHTML = '';
+
+    if (!item) return;
+
+    var units = item.allowedUnits || [item.unit];
+    for (var i = 0; i < units.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = units[i];
+      opt.textContent = units[i];
+      if (units[i] === item.unit) opt.selected = true;
+      sel.appendChild(opt);
+    }
+
+    updatePreview();
+  }
+
+  function loadState() {
+    var item = currentItem();
+    if (!item) return;
+
+    var date = $('date').value || (PANEL && PANEL.today);
+
+    google.script.run
+      .withSuccessHandler(function (state) {
+        if (!state || !state.ok) {
+          STATE = null;
+          showMsg((state && state.errors ? state.errors : ['Could not read that item.']).join('\n'), 'error');
+          return;
+        }
+        STATE = state;
+        renderTiles();
+        renderHistory();
+        updatePreview();
+      })
+      .withFailureHandler(function (err) {
+        showMsg('Could not read that item: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .getManualStockState(item.name, date);
+  }
+
+  function renderTiles() {
+    var s = STATE;
+    if (!s) return;
+
+    var u = s.item.unit;
+    $('tiles').innerHTML =
+      tile('Remaining now', fmt(s.remaining) + ' ' + u) +
+      tile('Total available', fmt(s.available) + ' ' + u) +
+      tile('Used to date', fmt(s.used) + ' ' + u) +
+      tile('Avg. rate', fmt(s.avgRate) + ' /' + u) +
+      tile('Last count', s.countDate || 'never') +
+      tile('Remaining value', fmt(s.remainingValue) + ' BDT');
+  }
+
+  function tile(k, v) {
+    return '<div class="tile"><div class="k">' + esc(k) + '</div>' +
+      '<div class="v">' + esc(v) + '</div></div>';
+  }
+
+  function updatePreview() {
+    var el = $('preview');
+    var s = STATE;
+    var item = currentItem();
+
+    if (!s || !item) {
+      el.className = 'preview muted';
+      el.textContent = '';
+      return;
+    }
+
+    var raw = $('counted').value;
+    if (raw === '') {
+      el.className = 'preview muted';
+      el.textContent = 'Enter what is left to see the effect.';
+      return;
+    }
+
+    var q = parseFloat(raw);
+    if (isNaN(q) || q < 0) {
+      el.className = 'preview warn';
+      el.textContent = 'Enter a quantity of zero or more.';
+      return;
+    }
+
+    var base = q * unitFactor($('unit').value);
+    var displayFactor = unitFactor(item.unit);
+
+    var usedWillBe = (s.availableBase - base) / displayFactor;
+    var remainingWillBe = base / displayFactor;
+    var value = base * s.avgPerBase;
+
+    var over = base > s.availableBase + 0.0001;
+
+    el.className = 'preview' + (over ? ' warn' : '');
+    el.innerHTML =
+      'Used will become <b>' + esc(fmt(usedWillBe)) + ' ' + esc(item.unit) + '</b>; ' +
+      'remaining <b>' + esc(fmt(remainingWillBe)) + ' ' + esc(item.unit) + '</b> ' +
+      '(' + esc(fmt(value)) + ' BDT).' +
+      (over
+        ? '<br>This is more than the recorded availability — a purchase may be missing.'
+        : '');
+  }
+
+  function renderHistory() {
+    var el = $('history');
+    el.innerHTML = '';
+
+    var counts = (STATE && STATE.counts) || [];
+    if (!counts.length) {
+      el.innerHTML = '<div class="muted">No counts recorded for this item.</div>';
+      return;
+    }
+
+    for (var i = 0; i < counts.length && i < 20; i++) {
+      (function (c) {
+        var row = document.createElement('div');
+        row.className = 'day-row';
+
+        var left = document.createElement('span');
+        left.className = 'd';
+        left.textContent = c.date;
+
+        var mid = document.createElement('span');
+        mid.className = 'r';
+        mid.textContent = fmt(c.quantity) + ' ' + STATE.item.unit +
+          (c.baseQuantity === '' || c.baseQuantity === null
+            ? ''
+            : ' (' + fmt(c.baseQuantity) + ' ' + STATE.item.baseUnit + ')') +
+          (c.reason && c.reason !== 'Manual stock count' ? ' · ' + c.reason : '');
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'remove';
+        btn.textContent = 'Delete';
+        btn.addEventListener('click', function () { removeCount(c.adjustmentId); });
+
+        row.appendChild(left);
+        row.appendChild(mid);
+        row.appendChild(btn);
+        el.appendChild(row);
+      })(counts[i]);
+    }
+  }
+
+  function save() {
+    hideMsg();
+
+    var item = currentItem();
+    if (!item) { showMsg('Choose an item.', 'error'); return; }
+
+    var btn = $('save');
+    btn.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res.ok) { showMsg((res.errors || ['Could not save.']).join('\n'), 'error'); return; }
+
+        showMsg(res.message + (res.warning ? '\n' + res.warning : ''),
+          res.warning ? 'warn' : 'ok');
+
+        $('counted').value = '';
+        $('reason').value = '';
+
+        if (res.state && res.state.ok) {
+          STATE = res.state;
+          renderTiles();
+          renderHistory();
+          updatePreview();
+        } else {
+          loadState();
+        }
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .saveManualStockCount({
+        date: $('date').value,
+        item: item.name,
+        quantity: $('counted').value,
+        unit: $('unit').value,
+        reason: $('reason').value
+      });
+  }
+
+  function removeCount(adjustmentId) {
+    hideMsg();
+    if (!confirm('Delete this count?\n\nThe Stock view falls back to the previous ' +
+        'count, or to recorded usage when there is none.')) return;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res.ok) { showMsg((res.errors || ['Could not delete.']).join('\n'), 'error'); return; }
+        showMsg(res.message + (res.warning ? '\n' + res.warning : ''),
+          res.warning ? 'warn' : 'ok');
+        loadState();
+      })
+      .withFailureHandler(function (err) {
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .deleteManualStockCount(adjustmentId);
+  }
+
+  // ---- Bootstrap ----
+  try {
+    $('group').addEventListener('change', renderItems);
+    $('item').addEventListener('change', function () { renderUnits(); loadState(); });
+    $('date').addEventListener('change', loadState);
+    $('counted').addEventListener('input', updatePreview);
+    $('unit').addEventListener('change', updatePreview);
+    $('save').addEventListener('click', save);
+
+    google.script.run
+      .withSuccessHandler(function (panel) {
+        PANEL = panel;
+
+        if (!panel || !panel.items || !panel.items.length) {
+          showMsg('No countable items found. Run Awwffle > Setup / Update structure first.', 'error');
+          return;
+        }
+
+        if (panel.today) $('date').value = panel.today;
+
+        renderGroups();
+        renderItems();
+      })
+      .withFailureHandler(function (err) {
+        showMsg('Could not load the form: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .getManualStockPanel();
+  } catch (e) {
+    showMsg('The form failed to start: ' + e.message, 'error');
+  }
+</script>
+</body>
+</html>

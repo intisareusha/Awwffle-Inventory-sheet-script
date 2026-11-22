@@ -73,11 +73,14 @@
     .hidden { display: none !important; }
 
     .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .tiles.three { grid-template-columns: 1fr 1fr 1fr; }
     .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
     .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
     .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
     .tile.wide { grid-column: 1 / -1; }
     .tile.money .v { color: #188038; }
+    .tile.red .v { color: #c5221f; }
+    .tile.plain .v { color: #202124; }
 
     /* Loading state while a filter query is in flight. */
     #pane-entry, #pane-waffles { position: relative; }
@@ -625,16 +628,26 @@
     }
 
     var tiles = '<div class="tiles">' +
-      '<div class="tile money wide"><div class="k">Total POS Sale</div>' +
+      '<div class="tile plain wide"><div class="k">Total POS Sale</div>' +
         '<div class="v">৳' + money(d.totalSale) + '</div></div>' +
+      '<div class="tile red"><div class="k">Total Discount</div>' +
+        '<div class="v">৳' + money(d.totalDiscount) + '</div></div>' +
+      '<div class="tile red"><div class="k">Total Due</div>' +
+        '<div class="v">৳' + money(d.totalDue) + '</div></div>' +
+      '<div class="tile money wide"><div class="k">Sale after Discount</div>' +
+        '<div class="v">৳' + money(d.totalSaleAfterDiscount) + '</div></div>' +
+      '<div class="tile red wide"><div class="k">Bazar in range</div>' +
+        '<div class="v">৳' + money(d.totalBazar) + '</div></div>' +
+      '<div class="tile money wide"><div class="k">Cash in Hand</div>' +
+        '<div class="v">৳' + money(d.cashInHand) + '</div></div>' +
+      '</div>' +
+      '<div class="tiles three">' +
       '<div class="tile"><div class="k">Total open days</div>' +
         '<div class="v">' + fmt(d.openDays) + '</div></div>' +
-      '<div class="tile"><div class="k">Items</div>' +
+      '<div class="tile"><div class="k">Showing Items</div>' +
         '<div class="v">' + d.byProduct.length + '</div></div>' +
-      '<div class="tile"><div class="k">Units sold</div>' +
+      '<div class="tile"><div class="k">Units Sold</div>' +
         '<div class="v">' + fmt(d.totalUnits) + '</div></div>' +
-      '<div class="tile money"><div class="k">POS Revenue</div>' +
-        '<div class="v">৳' + money(d.totalRevenue) + '</div></div>' +
       '</div>';
 
     var rows = '';
@@ -648,7 +661,17 @@
       '<th>Product</th><th class="n">Units</th><th class="n">Sale</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 
-    $('waffleOut').innerHTML = tiles + table;
+    var footer = '<div class="tiles" style="margin-top:10px">' +
+      '<div class="tile money"><div class="k">POS Revenue</div>' +
+        '<div class="v">৳' + money(d.totalRevenue) + '</div></div>' +
+      '<div class="tile red"><div class="k">POS Cost</div>' +
+        '<div class="v">৳' + money(d.totalCost) + '</div></div>' +
+      '</div>';
+
+    var note = '<div class="muted" style="margin:-2px 0 8px">Cash in Hand = Sale after ' +
+      'Discount − Total Due − Bazar in range. Only outstanding dues reduce it.</div>';
+
+    $('waffleOut').innerHTML = tiles + table + footer + note;
   }
 
   // ---- Bootstrap ----

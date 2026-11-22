@@ -35,13 +35,17 @@ function setupSpreadsheet_() {
   // 2. Expense types
   ensureExpenseTypesSheet_(created, skipped, seeded);
 
+  // 2b. Due-customer list (seeded once, then owner/entry-maintained)
+  ensureCustomersSheet_(created, skipped, seeded);
+
   // 3. Item master
   ensureItemMasterSheet_(settings, created, skipped, seeded);
 
   // 4. All remaining source sheets, except those with dedicated handlers below
-  //    (settings, expense types, item master, POS products).
+  //    (settings, expense types, item master, POS products, customers).
   var handledSeparately = [
-    SHEETS.SETTINGS, SHEETS.EXPENSE_TYPES, SHEETS.ITEM_MASTER, SHEETS.POS_PRODUCTS
+    SHEETS.SETTINGS, SHEETS.EXPENSE_TYPES, SHEETS.ITEM_MASTER, SHEETS.POS_PRODUCTS,
+    SHEETS.CUSTOMERS
   ];
   sourceSheetOrder_().forEach(function (name) {
     if (handledSeparately.indexOf(name) !== -1) return;
@@ -244,6 +248,48 @@ function ensureExpenseTypesSheet_(created, skipped, seeded) {
   if (rows.length) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, SCHEMA[SHEETS.EXPENSE_TYPES].length).setValues(rows);
     seeded.push(rows.length + ' expense types');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Customers — due dropdown list
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates the Customers list and seeds the usual names ONCE.
+ *
+ * Like every other config sheet, it never overwrites an existing row: a name the
+ * owner deactivated or added by hand stays as-is. New names typed on the due form
+ * are appended by 12_Finance.gs, so the list grows with use.
+ */
+function ensureCustomersSheet_(created, skipped, seeded) {
+  var existed = sheetExists_(SHEETS.CUSTOMERS);
+  var sheet = getSheet_(SHEETS.CUSTOMERS);
+
+  if (!existed) {
+    writeHeaders_(sheet, SCHEMA[SHEETS.CUSTOMERS]);
+    created.push(SHEETS.CUSTOMERS);
+  } else {
+    ensureHeadersPresent_(sheet, SCHEMA[SHEETS.CUSTOMERS]);
+    skipped.push(SHEETS.CUSTOMERS);
+  }
+
+  function customerKey_(v) {
+    return String(v === null || v === undefined ? '' : v).trim().toLowerCase();
+  }
+
+  var existing = readRecords_(SHEETS.CUSTOMERS).map(function (r) {
+    return customerKey_(r['Customer']);
+  });
+
+  var rows = [];
+  DUE_CUSTOMER_SEED.forEach(function (name) {
+    if (existing.indexOf(customerKey_(name)) !== -1) return;
+    rows.push([name, true, 'Seeded default due customer.']);
+  });
+  if (rows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, SCHEMA[SHEETS.CUSTOMERS].length).setValues(rows);
+    seeded.push(rows.length + ' customers');
   }
 }
 

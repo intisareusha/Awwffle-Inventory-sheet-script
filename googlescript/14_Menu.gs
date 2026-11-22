@@ -21,6 +21,9 @@ function installMenu_() {
   entry.addItem('Record a purchase (Bazar)', 'menuOpenBazarForm');
   entry.addItem('Record daily batches', 'menuOpenBatchForm');
   entry.addItem('Record POS snapshot', 'menuOpenPosForm');
+  entry.addItem('Record a discount', 'menuOpenDiscountForm');
+  entry.addItem('Record a due', 'menuOpenDueForm');
+  entry.addItem('Record manual stock count', 'menuOpenManualStock');
   entry.addItem('Record a closed day', 'menuOpenClosedDays');
   menu.addSubMenu(entry);
 
@@ -85,6 +88,18 @@ function menuOpenBatchForm() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+function menuOpenDiscountForm() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_Discount')
+    .setTitle('Record a discount');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenDueForm() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_Due')
+    .setTitle('Record a due');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
 function menuOpenSummary() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_Summary')
     .setTitle('Summary');
@@ -94,6 +109,12 @@ function menuOpenSummary() {
 function menuOpenClosedDays() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_ClosedDays')
     .setTitle('Closed days');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenManualStock() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_ManualStock')
+    .setTitle('Manual stock count');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 

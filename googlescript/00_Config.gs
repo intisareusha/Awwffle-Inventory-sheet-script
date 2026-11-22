@@ -19,7 +19,10 @@ var SHEETS = {
   POS_PRODUCTS: 'POS_Products',
   PRICE_HISTORY: 'PriceHistory',
   INVOICES: 'Invoices',
-  DISCOUNT_DUE: 'DiscountDue',
+  DISCOUNT_DUE: 'DiscountDue',       // legacy monthly aggregates; not read by finance
+  DISCOUNTS: 'Discounts',            // one dated daily discount (§8.1, §13.B14)
+  DUES: 'Dues',                      // one row per customer due (§13.B16)
+  CUSTOMERS: 'Customers',            // due-customer dropdown list
   CLOSED_DAYS: 'ClosedDays',
   ADJUSTMENTS: 'Adjustments',
   OPENING_STOCK: 'OpeningStock',
@@ -94,6 +97,23 @@ var EXPENSE_TYPE_INVENTORY = 'Inventory purchase';
  * data collision. The label is kept as the owner asked.
  */
 var BAZAR_STATUSES = ['Paid', 'Due'];
+
+/**
+ * Due lifecycle (README §13.B16).
+ *
+ * `Outstanding` money is still owed to Awwffle and is the ONLY amount subtracted
+ * from cash in hand. `Paid` means the money came back: it stops reducing cash and
+ * the row becomes inert history that may be deleted without any effect.
+ */
+var DUE_STATUSES = ['Outstanding', 'Paid'];
+
+/**
+ * Customers the due form offers by default. A name typed that is not here is
+ * remembered, so it appears in the dropdown next time (owner's workflow).
+ */
+var DUE_CUSTOMER_SEED = [
+  'Riyad', 'Rasha', 'Farsim', 'Raza', 'Aman', 'Shohag', 'Sagor', 'Raihan', 'Delivery'
+];
 
 /**
  * POS counter-reset tolerance (README §7.2, §13.A3, §13.G7).

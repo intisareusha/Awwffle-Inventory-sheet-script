@@ -984,6 +984,7 @@ function getDailyWaffles_(startDate, endDate, filters) {
   var byProduct = {};
   var minDate = null;
   var maxDate = null;
+  var totalSaleAll = 0;      // gross sale for the whole range, ignoring item filters
 
   snapshotRecords_().forEach(function (r) {
     var d = toDate_(r['Date']);
@@ -994,36 +995,43 @@ function getDailyWaffles_(startDate, endDate, filters) {
     if (!minDate || d < minDate) minDate = d;
     if (!maxDate || d > maxDate) maxDate = d;
 
-    var product = String(r['Product'] || '');
-    if (!product) return;
-    if (wantProduct && product !== wantProduct) return;
-    if (wantKind && kindOf[product] !== wantKind) return;
+    var productKey = String(r['Product'] || '');
+    if (!productKey) return;
 
-    var sold = toNumber_(r['Units Sold']);
-    if (sold === null) sold = 0;
+    // The cash formula is a whole-period figure, so its gross sale must not be
+    // narrowed by the product/kind filters used for the item table.
+    var soldAll = toNumber_(r['Units Sold']);
+    if (soldAll === null) soldAll = 0;
+    var saleAll = toNumber_(saleOf[productKey]);
+    if (saleAll !== null) totalSaleAll += soldAll * saleAll;
+
+    if (wantProduct && productKey !== wantProduct) return;
+    if (wantKind && kindOf[productKey] !== wantKind) return;
+
+    var sold = soldAll;
 
     rows.push({
       date: dateKey_(d),
-      product: product,
+      product: productKey,
       prev: toNumber_(r['Prev Stock']),
       curr: toNumber_(r['Cr Stock']),
       sold: round2_(sold),
       reset: r['Reset Occurred'] === true || String(r['Reset Occurred']) === 'true'
     });
 
-    if (!byProduct[product]) {
-      byProduct[product] = {
-        product: product, kind: kindOf[product] || '',
+    if (!byProduct[productKey]) {
+      byProduct[productKey] = {
+        product: productKey, kind: kindOf[productKey] || '',
         units: 0, saleAmount: 0, costAmount: 0, revenue: 0
       };
     }
-    var bucket = byProduct[product];
+    var bucket = byProduct[productKey];
     bucket.units += sold;
 
-    var sale = toNumber_(saleOf[product]);
+    var sale = toNumber_(saleOf[productKey]);
     if (sale !== null) bucket.saleAmount += sold * sale;
 
-    var cost = toNumber_(costOf[product]);
+    var cost = toNumber_(costOf[productKey]);
     if (cost !== null) bucket.costAmount += sold * cost;
   });
 
@@ -1055,6 +1063,16 @@ function getDailyWaffles_(startDate, endDate, filters) {
   var breakdown = (spanStart && spanEnd)
     ? openDayBreakdown_(spanStart, spanEnd, closedDaySet_()) : null;
 
+  // Discount, outstanding due and Bazar over the same period. Cash in hand applies
+  // the discount exactly once and subtracts only dues still owed (§8.1, §13.B14).
+  var finance = (spanStart && spanEnd)
+    ? financeTotals_(spanStart, spanEnd)
+    : { discount: 0, dueOutstanding: 0, dueAccrued: 0, bazar: 0 };
+
+  var grossSale = round2_(totalSaleAll);
+  var saleAfterDiscount = round2_(grossSale - finance.discount);
+  var cashInHand = cashInHand_(grossSale, finance.discount, finance.dueOutstanding, finance.bazar);
+
   return {
     range: {
       start: start ? dateKey_(start) : '',
@@ -1064,8 +1082,15 @@ function getDailyWaffles_(startDate, endDate, filters) {
     byProduct: list,
     totalUnits: round2_(totalUnits),
     totalSale: round2_(totalSale),
+    totalSaleAll: grossSale,
     totalCost: round2_(totalCost),
     totalRevenue: round2_(totalRevenue),
+    totalDiscount: finance.discount,
+    totalSaleAfterDiscount: saleAfterDiscount,
+    totalDue: finance.dueOutstanding,
+    totalDueAccrued: finance.dueAccrued,
+    totalBazar: finance.bazar,
+    cashInHand: cashInHand,
     rowCount: rows.length,
     openDays: breakdown ? breakdown.openDays : 0,
     calendarDays: breakdown ? breakdown.calendarDays : 0,

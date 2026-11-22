@@ -199,6 +199,65 @@ A day can only be one or the other. The panel tells you which ones need a decisi
 
 ---
 
+## Discounts and dues
+
+**Awwffle → Daily entry → Record a discount**
+**Awwffle → Daily entry → Record a due**
+
+These are the two figures the cash calculation needs, entered as **dated daily
+records** rather than per-invoice entries (README §8.1, §13.B14, §13.B16, §13.G3).
+Both forms take a date range with the same shortcuts as the other summaries
+(All time · This month · Last month · Last 7 days · Last 30 days) and list the
+records in that range so any day can be edited or deleted.
+
+### Discount
+
+- **One per day.** Saving the same date corrects that day instead of adding a
+  second row, so a day can never be discounted twice.
+- Date, amount and an optional note.
+- Editing or deleting recalculates cash in hand immediately.
+
+### Due
+
+- **One row per customer amount owed**, so several dues on the same day are fine.
+- Date, customer, amount and an optional note.
+- **Customer** is a dropdown seeded with the usual names (Riyad, Rasha, Farsim,
+  Raza, Aman, Shohag, Sagor, Raihan, Delivery). Type a new name and it is saved, so
+  it appears in the dropdown next time.
+- Each due is **Outstanding** or **Paid**:
+  - **Outstanding** money reduces cash in hand.
+  - **Mark paid** brings the money back into cash; the row becomes inert history
+    and can be deleted with no effect.
+  - **Deleting an outstanding due** removes the deduction, so cash rises by that
+    amount — no money drop.
+- The panel shows **outstanding by customer**, so "how many dues and from whom" is
+  answered directly.
+
+### Cash in hand
+
+The POS / Daily waffles summary now shows, for the selected range:
+
+```
+Total POS Sale
+− Total Discount
+= Sale after Discount
+− Total Due (Outstanding only)
+− Bazar in range
+= Cash in Hand
+```
+
+Discount is applied **once** and only outstanding dues are subtracted. Cash
+recomputes live from the records whenever the sidebar loads — there is no separate
+refresh step. A due dated in an earlier period that is paid later moves that
+earlier range's figure, which is the intended live behaviour.
+
+> **The old `DiscountDue` sheet is not read.** Migration left two monthly lumps
+> (Oct 6,032 / Nov 2,826) there. Enter the daily figures for that period in the
+> new **Discounts** and **Dues** forms; leaving the old sheet alone is safe because
+> it is no longer part of the calculation.
+
+---
+
 ## What every average divides by
 
 Per-day figures use **open days** from the closed-day list:

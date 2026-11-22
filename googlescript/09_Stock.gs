@@ -198,6 +198,145 @@ function manualUsedBaseQuantity_(itemName, adjustmentRows, adjustmentIndex) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Physical counts (§13.C26)
+// ---------------------------------------------------------------------------
+//
+// A Count row is a set-to statement, not usage. Everything the Stock view needs
+// to turn it into a balance lives here, so the rule is defined once.
+
+/**
+ * The latest Count row for an item, or null.
+ *
+ * Same-day ties go to the row entered last, because a second count on one day is
+ * a correction of the first rather than extra movement.
+ */
+function latestCountRow_(itemName, adjustmentRows, adjustmentIndex) {
+  var needle = normaliseItemName_(itemName);
+  var rows = adjustmentIndex
+    ? (adjustmentIndex[needle] || [])
+    : (adjustmentRows || []).filter(function (r) {
+        return normaliseItemName_(r['Item']) === needle;
+      });
+
+  var best = null;
+  var bestTime = -Infinity;
+
+  rows.forEach(function (r) {
+    if (String(r['Direction']) !== 'Count') return;
+    var d = toDate_(r['Date']);
+    if (!d) return;
+    var t = d.getTime();
+    if (t >= bestTime) {
+      bestTime = t;
+      best = r;
+    }
+  });
+
+  return best;
+}
+
+/** Base-unit quantity of an adjustment row, converting the entry quantity if needed. */
+function adjustmentBaseQty_(row) {
+  if (!row) return null;
+
+  var base = toNumber_(row['Base Quantity']);
+  if (base !== null) return base;
+
+  var raw = toNumber_(row['Quantity']);
+  if (raw === null) return null;
+
+  var item = findItem_(row['Item']);
+  var unit = String(row['Unit'] || (item ? item.unit : 'p')).trim();
+  return toBaseQuantity_(raw, unit, item && item.perPieceWeight);
+}
+
+/**
+ * Net Out minus In for one item strictly after a date. Count rows are ignored:
+ * a later count already supersedes whatever came before it.
+ */
+function netOutAfter_(itemName, adjustmentRows, adjustmentIndex, afterDate) {
+  var needle = normaliseItemName_(itemName);
+  var rows = adjustmentIndex
+    ? (adjustmentIndex[needle] || [])
+    : (adjustmentRows || []).filter(function (r) {
+        return normaliseItemName_(r['Item']) === needle;
+      });
+
+  var out = 0;
+
+  rows.forEach(function (r) {
+    var dir = String(r['Direction'] || 'Out');
+    if (dir !== 'Out' && dir !== 'In') return;
+
+    var d = toDate_(r['Date']);
+    if (!d || d <= afterDate) return;
+
+    var q = adjustmentBaseQty_(r);
+    if (q === null) return;
+    out += dir === 'Out' ? q : -q;
+  });
+
+  return out;
+}
+
+/** Purchases in base units strictly after a date. */
+function purchasesAfter_(itemName, bazarRows, bazarIndex, afterDate) {
+  var needle = normaliseItemName_(itemName);
+  var rows = bazarIndex
+    ? (bazarIndex[needle] || [])
+    : (bazarRows || []).filter(function (r) {
+        return normaliseItemName_(r['Item']) === needle;
+      });
+
+  var qty = 0;
+
+  rows.forEach(function (r) {
+    var affects = String(r['Affects Stock']);
+    if (affects !== 'true' && affects !== 'TRUE') return;
+
+    var d = toDate_(r['Date']);
+    if (!d || d <= afterDate) return;
+
+    var q = toNumber_(r['Base Quantity']);
+    if (q !== null) qty += q;
+  });
+
+  return qty;
+}
+
+/** POS units sold for a resale item strictly after a date. */
+function resaleSoldAfter_(itemName, posRows, posIndex, afterDate) {
+  var item = findItem_(itemName);
+  if (!item || item.population !== POPULATION.RESALE || !item.posLink) return 0;
+
+  var rows = posIndex
+    ? (posIndex[normaliseItemName_(item.posLink)] || [])
+    : (posRows || []).filter(function (r) { return String(r['Product']) === item.posLink; });
+
+  var sold = 0;
+
+  rows.forEach(function (r) {
+    var d = toDate_(r['Date']);
+    if (!d || d <= afterDate) return;
+    var n = toNumber_(r['Units Sold']);
+    if (n !== null) sold += n;
+  });
+
+  return sold;
+}
+
+/**
+ * Remaining quantity after a physical count: the counted figure plus everything
+ * that moved after it. Pure, so it can be tested without a spreadsheet.
+ */
+function remainingAfterCount_(countedBase, purchasesAfter, netOutAfter, resaleAfter) {
+  return Number(countedBase || 0) +
+         Number(purchasesAfter || 0) -
+         Number(netOutAfter || 0) -
+         Number(resaleAfter || 0);
+}
+
 /**
  * POS-driven usage for resale items (§13.G1). Water only.
  *
@@ -300,9 +439,53 @@ function computeStock_(asOf, opts) {
     var totalUsed = manualUsed + resaleUsed;
     PREPARATIONS.forEach(function (p) { totalUsed += perPrep[p]; });
 
+    // --- Physical count (manual and resale only) ------------------------------
+    //
+    // A count is a SET-TO statement: "this much was on the shelf on this date".
+    // It therefore overrides the usage figure rather than adding to it, and every
+    // movement after the count is applied on top — a later purchase still raises
+    // the balance, a later sale still lowers it.
+    //
+    // Recipe-driven items are excluded on purpose: their usage comes from
+    // Measurements × Batches, and a count would contradict that model by design.
+    var countRow = null;
+    var countDate = null;
+    var countedBase = null;
+    var remainingQty;
+
+    if (population !== POPULATION.RECIPE) {
+      countRow = latestCountRow_(name, adjustmentRows, adjustmentIndex);
+
+      if (countRow) {
+        countedBase = adjustmentBaseQty_(countRow);
+
+        if (countedBase !== null) {
+          countDate = toDate_(countRow['Date']);
+
+          remainingQty = remainingAfterCount_(
+            countedBase,
+            purchasesAfter_(name, bazarRows, bazarIndex, countDate),
+            netOutAfter_(name, adjustmentRows, adjustmentIndex, countDate),
+            population === POPULATION.RESALE
+              ? resaleSoldAfter_(name, posRows, posIndex, countDate)
+              : 0
+          );
+
+          // Whatever reconciles the shelf to the count IS the usage. It is derived
+          // here rather than stored, which keeps the valuation identity true:
+          // used cost + remaining value = opening value + purchase spend.
+          totalUsed = cost.availableQty - remainingQty;
+
+          if (population === POPULATION.RESALE) resaleUsed = totalUsed;
+          else manualUsed = totalUsed;
+        }
+      }
+    }
+
+    if (remainingQty === undefined) remainingQty = cost.availableQty - totalUsed;
+
     // --- Valuation: the identity is enforced here ---
     var usedCost = totalUsed * cost.avg;
-    var remainingQty = cost.availableQty - totalUsed;
     var remainingValue = remainingQty * cost.avg;
 
     // --- Estimates (§6.2.2) ---
@@ -372,6 +555,10 @@ function computeStock_(asOf, opts) {
       flags: flags,
       lowStock: remainingQty < 0 || flags.indexOf('LOW DAYS') !== -1 ||
                 flags.indexOf('LOW BATCHES') !== -1,
+
+      // Blank unless a physical count exists for this item on or before `asOf`.
+      countDate: countDate ? dateKey_(countDate) : '',
+      countedQty: countedBase === null ? '' : round2_(countedBase),
 
       latestRate: toNumber_(r['Latest Purchase Rate'])
     });
