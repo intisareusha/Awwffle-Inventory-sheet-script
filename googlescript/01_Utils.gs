@@ -155,6 +155,11 @@ function toDate_(v) {
         d = new Date(s);
       }
     }
+  } else if (typeof v === 'number' && isFinite(v)) {
+    // A cell formatted as a plain number still holds a date serial. Serial 0 is
+    // 1899-12-30; whole (floored) days keep the timezone off the result.
+    var utc = new Date(Date.UTC(1899, 11, 30) + Math.floor(v) * 86400000);
+    d = new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
   } else {
     return null;
   }

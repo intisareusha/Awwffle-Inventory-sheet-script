@@ -71,6 +71,19 @@
     .muted { color: #5f6368; font-size: 11px; }
     .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
       text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
+
+    /* Loading state while a range query is in flight. */
+    #rangePane { position: relative; }
+    .busy-overlay {
+      position: absolute; inset: 0; background: rgba(255,255,255,.74);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px; font-size: 12px; color: #5f6368; z-index: 10; border-radius: 6px;
+    }
+    .spinner {
+      width: 22px; height: 22px; border: 2px solid #dadce0; border-top-color: #1a73e8;
+      border-radius: 50%; animation: duespin .7s linear infinite;
+    }
+    @keyframes duespin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -106,19 +119,24 @@
   </fieldset>
 
   <div class="section-title">Dues in range</div>
-  <div class="presets" id="presets"></div>
-  <div class="two">
-    <div class="row"><label for="from">From</label><input type="date" id="from"></div>
-    <div class="row"><label for="to">To</label><input type="date" id="to"></div>
+  <div id="rangePane">
+    <div class="presets" id="presets"></div>
+    <div class="two">
+      <div class="row"><label for="from">From</label><input type="date" id="from"></div>
+      <div class="row"><label for="to">To</label><input type="date" id="to"></div>
+    </div>
+    <button type="button" id="show" class="primary" style="width:100%;margin-bottom:10px">
+      Show Dues
+    </button>
+
+    <div id="tiles" class="tiles"></div>
+
+    <div class="section-title">Outstanding by customer</div>
+    <div id="byCustomer"></div>
+
+    <div class="section-title">Due records</div>
+    <div id="list" class="list"></div>
   </div>
-
-  <div id="tiles" class="tiles"></div>
-
-  <div class="section-title">Outstanding by customer</div>
-  <div id="byCustomer"></div>
-
-  <div class="section-title">Due records</div>
-  <div id="list" class="list"></div>
 
   <div class="muted" style="margin-top:10px">
     Only <b>Outstanding</b> dues reduce cash in hand. Marking one <b>Paid</b> brings the
@@ -131,6 +149,8 @@
   var EDITING = null;
   var PRESETS = [
     { key: 'all', label: 'All time' },
+    { key: 'today', label: 'Today' },
+    { key: 'yesterday', label: 'Yesterday' },
     { key: 'thisMonth', label: 'This month' },
     { key: 'lastMonth', label: 'Last month' },
     { key: 'last7', label: 'Last 7 days' },
@@ -163,6 +183,17 @@
     return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
   }
 
+  // Earliest due date the panel already knows about, used as the All-time start
+  // when the server did not send a dataStart.
+  function earliestRecordDate() {
+    var first = '';
+    ((PANEL && PANEL.records) || []).forEach(function (r) {
+      var k = String(r.date || '');
+      if (k && (!first || k < first)) first = k;
+    });
+    return first;
+  }
+
   function renderCustomers() {
     var list = $('customerList');
     list.innerHTML = '';
@@ -192,14 +223,42 @@
     });
   }
 
+  // Dims the range pane behind a spinner and disables its controls while a query
+  // runs, matching the Discount / Summary / POS panes.
+  function setBusy(busy) {
+    var pane = $('rangePane');
+    if (!pane) return;
+
+    Array.prototype.forEach.call(pane.querySelectorAll('button, select, input'), function (el) {
+      el.disabled = busy;
+    });
+
+    var overlay = pane.querySelector('.busy-overlay');
+    if (busy) {
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'busy-overlay';
+        overlay.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
+        pane.appendChild(overlay);
+      }
+    } else if (overlay) {
+      overlay.parentNode.removeChild(overlay);
+    }
+  }
+
   function applyPreset(key) {
-    var today = PANEL ? PANEL.today : keyOf(new Date());
+    var today = PANEL && PANEL.today ? PANEL.today : keyOf(new Date());
     var t = parseKey(today);
     var from = today, to = today;
 
     if (key === 'all') {
-      from = (PANEL && PANEL.dataStart) || today;
-      to = (PANEL && PANEL.dataEnd) || today;
+      // All time runs from the business start date (the same opening date the
+      // Batches / Bazar tabs use) up to today.
+      from = (PANEL && PANEL.dataStart) || earliestRecordDate() || today;
+      to = today;
+    } else if (key === 'yesterday') {
+      from = keyOf(new Date(t.getTime() - 86400000));
+      to = from;
     } else if (key === 'thisMonth') {
       from = keyOf(new Date(t.getFullYear(), t.getMonth(), 1));
     } else if (key === 'lastMonth') {
@@ -211,20 +270,23 @@
       from = keyOf(new Date(t.getTime() - 29 * 86400000));
     }
 
+    // Presets only fill the dates; Show Dues runs the query with the loading state.
     $('from').value = from;
     $('to').value = to;
     setPresetActive(key);
-    loadList();
   }
 
   function loadList() {
+    setBusy(true);
     google.script.run
       .withSuccessHandler(function (d) {
+        setBusy(false);
         renderTiles(d);
         renderByCustomer(d);
         renderList(d);
       })
       .withFailureHandler(function (err) {
+        setBusy(false);
         showMsg('Could not load dues: ' + (err && err.message ? err.message : err), 'error');
       })
       .getDueList($('from').value, $('to').value);
@@ -325,8 +387,8 @@
   function applyPanel(panel) {
     PANEL = panel;
     renderCustomers();
-    $('from').value = panel.dataStart;
-    $('to').value = panel.dataEnd;
+    $('from').value = panel.dataStart || earliestRecordDate() || panel.today;
+    $('to').value = panel.today;
     setPresetActive('all');
   }
 
@@ -403,8 +465,9 @@
     buildPresets();
     $('save').addEventListener('click', save);
     $('cancelEdit').addEventListener('click', stopEdit);
-    $('from').addEventListener('change', function () { setPresetActive(''); loadList(); });
-    $('to').addEventListener('change', function () { setPresetActive(''); loadList(); });
+    $('show').addEventListener('click', loadList);
+    $('from').addEventListener('change', function () { setPresetActive(''); });
+    $('to').addEventListener('change', function () { setPresetActive(''); });
 
     google.script.run
       .withSuccessHandler(function (panel) {

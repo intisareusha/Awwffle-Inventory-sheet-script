@@ -10,6 +10,15 @@ Enter them from **Awwffle → Daily entry → Record a discount / Record a due**
 Everything is editable and filterable by date range (All time and the usual
 shortcuts). Nothing is stored twice.
 
+**All time** starts at the same opening date the Batches / Bazar tabs use and runs
+to today, so every summary reports the same starting day. Press **Show Discounts**
+/ **Show Dues** to run a range query; the pane shows the shared spinner while it
+loads.
+
+Rows typed directly into the `Discounts` / `Dues` tabs are read as well. The
+generated ID column may be left blank — a stable ID is filled in on first read so
+Edit / Delete / Mark paid keep working.
+
 ---
 
 ## Sheets

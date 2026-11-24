@@ -148,13 +148,93 @@ function recordDateExtent_(rows) {
   return { start: first, end: last };
 }
 
+/**
+ * The business start date, taken from the same sheets the Batches / Bazar / Stock
+ * summaries use. "All time" in the finance sidebars starts here (not at today and
+ * not at the first discount/due), so every tab reports the same opening date.
+ */
+function firstDataDate_(fallbackKey) {
+  var names = [SHEETS.POS_SNAPSHOTS, SHEETS.BATCHES, SHEETS.BAZAR];
+  var earliest = '';
+  names.forEach(function (name) {
+    readRecords_(name).forEach(function (r) {
+      var k = dateKey_(r['Date']);
+      if (k && (!earliest || k < earliest)) earliest = k;
+    });
+  });
+  return earliest || fallbackKey;
+}
+
+/** Earliest `date` key across already-mapped rows, or ''. */
+function earliestRecordKey_(rows) {
+  var first = '';
+  (rows || []).forEach(function (r) {
+    var k = String(r.date || '');
+    if (k && (!first || k < first)) first = k;
+  });
+  return first;
+}
+
+/** Business start, pulled earlier if a record predates it (never hide data). */
+function financeRangeStart_(records, today) {
+  var start = firstDataDate_(today);
+  var recStart = earliestRecordKey_(records);
+  return (recStart && recStart < start) ? recStart : start;
+}
+
 // ---------------------------------------------------------------------------
 // Reading records
 // ---------------------------------------------------------------------------
 
+/**
+ * Finance records keyed by header.
+ *
+ * Unlike the generic `readRecords_`, this does NOT discard a row just because the
+ * ID column is blank. The owner may type a discount or due straight into the tab,
+ * leaving the generated ID empty; dropping those rows made real data invisible.
+ * A missing ID is filled in once (self-healing) so edit / paid / delete keep a
+ * stable handle on the row.
+ */
+function readFinanceRows_(sheetName, idHeader, idPrefix) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  if (!sheet) return [];
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var headers = values[0].map(function (h) { return String(h).trim(); });
+  var idCol = colIndex_(headers, idHeader);
+  var records = [];
+
+  for (var r = 1; r < values.length; r++) {
+    var row = values[r];
+    var hasData = row.some(function (cell) { return !isBlank_(cell); });
+    if (!hasData) continue;
+
+    var record = {};
+    for (var c = 0; c < headers.length; c++) {
+      if (headers[c]) record[headers[c]] = row[c];
+    }
+
+    // A row that has neither a date nor an amount is padding, not a record.
+    if (isBlank_(record['Date']) && isBlank_(record['Amount'])) continue;
+
+    if (idCol >= 0 && isBlank_(record[idHeader])) {
+      record[idHeader] = newId_(idPrefix);
+      sheet.getRange(r + 1, idCol + 1).setValue(record[idHeader]);
+    }
+
+    records.push(record);
+  }
+
+  return records;
+}
+
 /** Discount rows as plain objects, in sheet order. */
 function readDiscountRows_() {
-  return readRecords_(SHEETS.DISCOUNTS).map(function (r) {
+  return readFinanceRows_(SHEETS.DISCOUNTS, 'Discount ID', 'DISC').map(function (r) {
     return {
       discountId: String(r['Discount ID'] || ''),
       date: dateKey_(r['Date']),
@@ -167,7 +247,7 @@ function readDiscountRows_() {
 
 /** Due rows as plain objects, in sheet order. */
 function readDueRows_() {
-  return readRecords_(SHEETS.DUES).map(function (r) {
+  return readFinanceRows_(SHEETS.DUES, 'Due ID', 'DUE').map(function (r) {
     var status = String(r['Status'] || '').trim();
     if (status !== 'Paid') status = 'Outstanding';
     return {
@@ -266,15 +346,13 @@ function writeFinanceRow_(sheet, rowNumber, record) {
 // ---------------------------------------------------------------------------
 
 function getDiscountPanel_() {
-  var rows = readDiscountRows_();
-  var extent = recordDateExtent_(rows);
   var list = buildDiscountList_('', '');
   var today = dateKey_(new Date());
 
   return {
     today: today,
-    dataStart: extent.start || today,
-    dataEnd: extent.end || today,
+    dataStart: financeRangeStart_(list.records, today),
+    dataEnd: today,
     records: list.records,
     total: list.total,
     count: list.count
@@ -406,15 +484,13 @@ function deleteDiscount_(discountId) {
 // ---------------------------------------------------------------------------
 
 function getDuePanel_() {
-  var rows = readDueRows_();
-  var extent = recordDateExtent_(rows);
   var list = buildDueList_('', '');
   var today = dateKey_(new Date());
 
   return {
     today: today,
-    dataStart: extent.start || today,
-    dataEnd: extent.end || today,
+    dataStart: financeRangeStart_(list.records, today),
+    dataEnd: today,
     customers: customerNames_(),
     records: list.records,
     totalOutstanding: list.totalOutstanding,

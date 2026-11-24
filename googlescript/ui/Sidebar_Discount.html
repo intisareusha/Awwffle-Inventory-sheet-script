@@ -161,6 +161,18 @@
     return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
   }
 
+  // Earliest discount date the panel already knows about. Used as the All-time
+  // start so the range begins at the data rather than at today even if the
+  // server did not send a dataStart.
+  function earliestRecordDate() {
+    var first = '';
+    ((PANEL && PANEL.records) || []).forEach(function (r) {
+      var k = String(r.date || '');
+      if (k && (!first || k < first)) first = k;
+    });
+    return first;
+  }
+
   function buildPresets() {
     var el = $('presets');
     el.innerHTML = '';
@@ -205,13 +217,15 @@
   }
 
   function applyPreset(key) {
-    var today = PANEL ? PANEL.today : keyOf(new Date());
+    var today = PANEL && PANEL.today ? PANEL.today : keyOf(new Date());
     var t = parseKey(today);
     var from = today, to = today;
 
     if (key === 'all') {
-      from = (PANEL && PANEL.dataStart) || today;
-      to = (PANEL && PANEL.dataEnd) || today;
+      // All time spans from where the ledger data begins up to today, the same
+      // way the Batches / Bazar tabs define it.
+      from = (PANEL && PANEL.dataStart) || earliestRecordDate() || today;
+      to = today;
     } else if (key === 'yesterday') {
       from = keyOf(new Date(t.getTime() - 86400000));
       to = from;
@@ -329,8 +343,8 @@
         showMsg(res.message, 'ok');
         $('date').value = PANEL.today;
         setPresetActive('all');
-        $('from').value = PANEL.dataStart;
-        $('to').value = PANEL.dataEnd;
+        $('from').value = PANEL.dataStart || earliestRecordDate() || PANEL.today;
+        $('to').value = PANEL.today;
         loadList();
       })
       .withFailureHandler(function (err) {
@@ -371,8 +385,8 @@
       .withSuccessHandler(function (panel) {
         PANEL = panel;
         $('date').value = panel.today;
-        $('from').value = panel.dataStart;
-        $('to').value = panel.dataEnd;
+        $('from').value = panel.dataStart || earliestRecordDate() || panel.today;
+        $('to').value = panel.today;
         setPresetActive('all');
         loadList();
       })
