@@ -23,6 +23,7 @@ var SHEETS = {
   DISCOUNTS: 'Discounts',            // one dated daily discount (§8.1, §13.B14)
   DUES: 'Dues',                      // one row per customer due (§13.B16)
   CUSTOMERS: 'Customers',            // due-customer dropdown list
+  CASH_IN_HAND: 'CashInHand',        // daily physical cash snapshot vs system cash in hand
   CLOSED_DAYS: 'ClosedDays',
   ADJUSTMENTS: 'Adjustments',
   OPENING_STOCK: 'OpeningStock',

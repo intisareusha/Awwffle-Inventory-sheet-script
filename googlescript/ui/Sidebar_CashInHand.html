@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; margin: 0; padding: 10px; color: #202124; background: #fff;
+    }
+    h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+    label { display: block; font-size: 11px; color: #5f6368; margin-bottom: 3px; font-weight: 500; }
+    input, select {
+      width: 100%; padding: 6px 7px; border: 1px solid #dadce0; border-radius: 4px;
+      font-size: 13px; font-family: inherit; background: #fff;
+    }
+    input:focus, select:focus {
+      outline: 2px solid #1a73e8; outline-offset: -1px; border-color: transparent;
+    }
+    input[readonly] { background: #f1f3f4; color: #5f6368; }
+    .row { margin-bottom: 9px; }
+    .two { display: flex; gap: 6px; }
+    .two > div { flex: 1; }
+    .three { display: flex; gap: 6px; }
+    .three > div { flex: 1; }
+
+    button { padding: 7px 13px; border-radius: 4px; border: 1px solid #dadce0;
+      background: #fff; cursor: pointer; font-size: 13px; font-family: inherit; }
+    button:hover { background: #f8f9fa; }
+    button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
+    button.primary:hover { background: #1765cc; }
+    button:disabled { opacity: .5; cursor: default; }
+
+    fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
+    legend { font-size: 11px; font-weight: 600; color: #5f6368; padding: 0 4px; }
+
+    .msg { padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; display: none;
+           font-size: 12px; white-space: pre-wrap; }
+    .msg.error { background: #fce8e6; color: #a50e0e; border: 1px solid #f5c6c2; }
+    .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
+    .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
+
+    /* Counts grid: four denominations per row so the sidebar stays compact. */
+    .counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .counts .c { text-align: center; }
+    .counts .c label { text-align: center; margin-bottom: 2px; font-size: 10px; }
+    .counts .c input { text-align: center; padding: 5px 4px; }
+
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
+    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
+    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+    .tile.money .v { color: #188038; }
+    .tile.wide { grid-column: 1 / -1; }
+    .tile .v.pos { color: #188038; }
+    .tile .v.neg { color: #a50e0e; }
+
+    .system {
+      background: #e6f4ea; border: 1px solid #b7e1c5; border-radius: 6px;
+      padding: 10px 12px; margin-bottom: 10px;
+    }
+    .system .k { font-size: 10px; color: #137333; text-transform: uppercase; letter-spacing: .3px; }
+    .system .v { font-size: 20px; font-weight: 700; color: #137333; margin-top: 2px; }
+
+    .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
+      text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
+    .muted { color: #5f6368; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h2>Record cash in hand</h2>
+
+  <div id="msg" class="msg"></div>
+
+  <div class="system">
+    <div class="k">Cash in Hand (system, all time)</div>
+    <div class="v" id="sysCash">৳0.00</div>
+  </div>
+
+  <fieldset>
+    <legend>Daily holding</legend>
+
+    <div class="row">
+      <label for="date">Date</label>
+      <input type="date" id="date">
+    </div>
+
+    <div class="section-title" style="margin-top:0">Notes at home</div>
+    <div class="counts" id="counts">
+      <div class="c"><label for="n1000">×1000</label><input type="number" min="0" step="1" id="n1000"></div>
+      <div class="c"><label for="n500">×500</label><input type="number" min="0" step="1" id="n500"></div>
+      <div class="c"><label for="n200">×200</label><input type="number" min="0" step="1" id="n200"></div>
+      <div class="c"><label for="n100">×100</label><input type="number" min="0" step="1" id="n100"></div>
+      <div class="c"><label for="n50">×50</label><input type="number" min="0" step="1" id="n50"></div>
+      <div class="c"><label for="n20">×20</label><input type="number" min="0" step="1" id="n20"></div>
+      <div class="c"><label for="n10">×10</label><input type="number" min="0" step="1" id="n10"></div>
+      <div class="c"><label for="n5">×5</label><input type="number" min="0" step="1" id="n5"></div>
+    </div>
+    <div class="muted" style="margin-top:6px">Cash holding: <b id="cashHolding">৳0.00</b></div>
+
+    <div class="section-title">Other holdings</div>
+    <div class="three">
+      <div><label for="bkash">bKash</label><input type="number" step="any" id="bkash" placeholder="0"></div>
+      <div><label for="bank">Bank</label><input type="number" step="any" id="bank" placeholder="0"></div>
+      <div><label for="counter">Cash Counter</label><input type="number" step="any" id="counter" placeholder="0"></div>
+    </div>
+
+    <div class="row" style="margin-top:9px">
+      <label for="extra">Extra (− short / + over)</label>
+      <input type="text" id="extra" readonly>
+    </div>
+
+    <div class="row">
+      <label for="notes">Note (optional)</label>
+      <input type="text" id="notes" placeholder="e.g. took 2,000 for personal use">
+    </div>
+
+    <button type="button" id="save" class="primary" style="width:100%">Save cash in hand</button>
+  </fieldset>
+
+  <div class="section-title">Totals</div>
+  <div class="tiles">
+    <div class="tile wide"><div class="k">Total Holding (all places)</div>
+      <div class="v" id="tTotal">৳0.00</div></div>
+    <div class="tile"><div class="k">Cash Holding</div><div class="v" id="tCash">৳0.00</div></div>
+    <div class="tile"><div class="k">bKash Holding</div><div class="v" id="tBkash">৳0.00</div></div>
+    <div class="tile"><div class="k">Bank Holding</div><div class="v" id="tBank">৳0.00</div></div>
+    <div class="tile"><div class="k">Cash Counter</div><div class="v" id="tCounter">৳0.00</div></div>
+    <div class="tile"><div class="k">Total Due</div><div class="v" id="tDue">৳0.00</div></div>
+    <div class="tile"><div class="k">Extra</div><div class="v" id="tExtra">৳0.00</div></div>
+  </div>
+
+  <div class="muted">
+    Extra = Total Holding − Cash in Hand. A negative Extra is money you must put in;
+    a positive Extra is money you have put in yourself.
+  </div>
+
+<script>
+  var STATE = { today: '', system: 0, due: 0 };
+  var DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5];
+
+  function $(id) { return document.getElementById(id); }
+
+  function money(v) {
+    var n = Number(v);
+    if (!isFinite(n)) n = 0;
+    return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function numVal(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+  function signedMoney(v) {
+    var n = numVal(v);
+    var sign = n > 0 ? '+' : (n < 0 ? '\u2212' : '');
+    return sign + '\u09F3' + money(Math.abs(n));
+  }
+
+  function showMsg(text, kind) {
+    var el = $('msg');
+    el.className = 'msg ' + (kind || 'ok');
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+  function hideMsg() { $('msg').style.display = 'none'; }
+
+  function countsArray() {
+    return DENOMS.map(function (d) { return numVal($('n' + d).value); });
+  }
+  function notesTotal() {
+    var c = countsArray();
+    var total = 0;
+    DENOMS.forEach(function (d, i) { total += c[i] * d; });
+    return total;
+  }
+  function physicalTotal() {
+    return notesTotal() + numVal($('bkash').value) +
+      numVal($('bank').value) + numVal($('counter').value);
+  }
+
+  // Recompute every on-screen figure from the inputs and the system value.
+  function renderTotals() {
+    var notes = notesTotal();
+    var physical = physicalTotal();
+    var extra = physical - STATE.system;
+
+    $('sysCash').textContent = '\u09F3' + money(STATE.system);
+    $('cashHolding').textContent = '\u09F3' + money(notes);
+    $('tCash').textContent = '\u09F3' + money(notes);
+    $('tBkash').textContent = '\u09F3' + money(numVal($('bkash').value));
+    $('tBank').textContent = '\u09F3' + money(numVal($('bank').value));
+    $('tCounter').textContent = '\u09F3' + money(numVal($('counter').value));
+    $('tTotal').textContent = '\u09F3' + money(physical);
+    $('tDue').textContent = '\u09F3' + money(STATE.due);
+
+    $('extra').value = signedMoney(extra);
+    $('tExtra').textContent = signedMoney(extra);
+    $('tExtra').className = 'v ' + (extra < 0 ? 'neg' : (extra > 0 ? 'pos' : ''));
+  }
+
+  function applyPanel(p) {
+    if (!p) return;
+    STATE.today = p.today;
+    STATE.system = numVal(p.system && p.system.cashInHand);
+    STATE.due = numVal(p.system && p.system.due);
+
+    if (p.date) $('date').value = p.date;
+
+    var r = p.record;
+    DENOMS.forEach(function (d) {
+      var v = r && r.counts && r.counts[d] != null ? r.counts[d] : '';
+      $('n' + d).value = v;
+    });
+    $('bkash').value = r && r.bkash != null ? r.bkash : '';
+    $('bank').value = r && r.bank != null ? r.bank : '';
+    $('counter').value = r && r.counter != null ? r.counter : '';
+    $('notes').value = r ? (r.notes || '') : '';
+
+    renderTotals();
+  }
+
+  function loadPanel(date) {
+    google.script.run
+      .withSuccessHandler(applyPanel)
+      .withFailureHandler(function (err) {
+        showMsg('Could not load cash in hand: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .getCashInHandPanel(date || '');
+  }
+
+  function save() {
+    hideMsg();
+    var payload = {
+      date: $('date').value,
+      bkash: $('bkash').value,
+      bank: $('bank').value,
+      counter: $('counter').value,
+      notes: $('notes').value,
+      counts: {}
+    };
+    DENOMS.forEach(function (d) { payload.counts[String(d)] = $('n' + d).value; });
+
+    var btn = $('save');
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        if (!res || !res.ok) {
+          showMsg(((res && res.errors) || ['Could not save.']).join('\n'), 'error');
+          return;
+        }
+        applyPanel(res.panel);
+        showMsg(res.message, 'ok');
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
+      })
+      .saveCashInHand(payload);
+  }
+
+  // ---- Bootstrap ----
+  try {
+    $('save').addEventListener('click', save);
+    $('date').addEventListener('change', function () {
+      hideMsg();
+      loadPanel($('date').value);
+    });
+
+    ['n1000', 'n500', 'n200', 'n100', 'n50', 'n20', 'n10', 'n5',
+     'bkash', 'bank', 'counter'].forEach(function (id) {
+      $(id).addEventListener('input', renderTotals);
+    });
+
+    loadPanel('');
+  } catch (e) {
+    showMsg('The form failed to start: ' + e.message, 'error');
+  }
+</script>
+</body>
+</html>

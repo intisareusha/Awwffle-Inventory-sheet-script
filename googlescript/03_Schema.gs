@@ -218,6 +218,31 @@ SCHEMA[SHEETS.CUSTOMERS] = [
 ];
 
 /**
+ * CashInHand — one daily snapshot of where the cash physically sits (notes at
+ * home, bKash, bank, shop counter), reconciled against the system "Cash in Hand".
+ * Only the entered figures and the system snapshot are stored; every total is
+ * derived on read so the sheet can never disagree with itself.
+ */
+SCHEMA[SHEETS.CASH_IN_HAND] = [
+  'Cash ID',
+  'Date',
+  'Count 1000',
+  'Count 500',
+  'Count 200',
+  'Count 100',
+  'Count 50',
+  'Count 20',
+  'Count 10',
+  'Count 5',
+  'Bkash',
+  'Bank',
+  'Cash Counter',
+  'System Cash in Hand',
+  'Notes',
+  'Entered At'
+];
+
+/**
  * Adjustments — wastage, damage, manual corrections (README §13.C26).
  * Kept separate from recipe consumption so wastage is never double-counted.
  */
@@ -330,6 +355,7 @@ function sourceSheetOrder_() {
     SHEETS.DISCOUNTS,
     SHEETS.DUES,
     SHEETS.CUSTOMERS,
+    SHEETS.CASH_IN_HAND,
     SHEETS.DISCOUNT_DUE,
     SHEETS.CLOSED_DAYS,
     SHEETS.ADJUSTMENTS,

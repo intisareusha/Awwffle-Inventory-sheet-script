@@ -23,6 +23,7 @@ function installMenu_() {
   entry.addItem('Record POS snapshot', 'menuOpenPosForm');
   entry.addItem('Record a discount', 'menuOpenDiscountForm');
   entry.addItem('Record a due', 'menuOpenDueForm');
+  entry.addItem('Record cash in hand', 'menuOpenCashInHandForm');
   entry.addItem('Record manual stock count', 'menuOpenManualStock');
   entry.addItem('Record a closed day', 'menuOpenClosedDays');
   menu.addSubMenu(entry);
@@ -97,6 +98,12 @@ function menuOpenDiscountForm() {
 function menuOpenDueForm() {
   var html = HtmlService.createHtmlOutputFromFile('Sidebar_Due')
     .setTitle('Record a due');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function menuOpenCashInHandForm() {
+  var html = HtmlService.createHtmlOutputFromFile('Sidebar_CashInHand')
+    .setTitle('Record cash in hand');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 

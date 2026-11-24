@@ -49,7 +49,8 @@ function runAllTests() {
     testPosExportParsing,
     testPosInvoiceDerivation,
     testManualCounts,
-    testFinance
+    testFinance,
+    testCashInHand
   ];
 
   var passed = 0;
@@ -1884,6 +1885,53 @@ function testFinance() {
   eq_(s, 'deleteDue is public', typeof deleteDue, 'function');
   eq_(s, 'saveDiscount has no trailing _', /_$/.test('saveDiscount'), false);
   eq_(s, 'saveDue has no trailing _', /_$/.test('saveDue'), false);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Cash in hand — daily physical holding reconciled to the system figure
+// ---------------------------------------------------------------------------
+
+function testCashInHand() {
+  var s = newSuite_();
+
+  // Denominations, largest first.
+  eq_(s, 'eight denominations', CASH_DENOMS.length, 8);
+  eq_(s, 'largest note first', CASH_DENOMS[0], 1000);
+  eq_(s, 'smallest note last', CASH_DENOMS[CASH_DENOMS.length - 1], 5);
+
+  // Notes total = count × denomination.
+  eq_(s, 'notes single', notesTotal_([1, 0, 0, 0, 0, 0, 0, 0]), 1000);
+  eq_(s, 'notes mixed', notesTotal_([3, 2, 1, 0, 0, 0, 0, 0]), 3 * 1000 + 2 * 500 + 200);
+  eq_(s, 'notes empty', notesTotal_([]), 0);
+
+  // Physical total adds every place.
+  eq_(s, 'physical sums pools', physicalTotal_(4200, 1000, 5000, 300), 10500);
+
+  // Extra sign: short is negative, over is positive, exact is zero.
+  eq_(s, 'extra short negative', extraOf_(9000, 9500), -500);
+  eq_(s, 'extra over positive', extraOf_(10000, 9500), 500);
+  eq_(s, 'extra exact zero', extraOf_(9500, 9500), 0);
+
+  // Counts keyed by denomination -> array aligned to CASH_DENOMS.
+  var arr = cashCountsArray_({ 1000: 2, 500: 1, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 3 });
+  eq_(s, 'counts keyed to array', JSON.stringify(arr), JSON.stringify([2, 1, 0, 0, 0, 0, 0, 3]));
+  eq_(s, 'keyed notes total', notesTotal_(arr), 2 * 1000 + 500 + 3 * 5);
+
+  // Schema + setup wiring.
+  eq_(s, 'CashInHand sheet named', SHEETS.CASH_IN_HAND, 'CashInHand');
+  eq_(s, 'CashInHand has a Date column',
+    SCHEMA[SHEETS.CASH_IN_HAND].indexOf('Date') !== -1, true);
+  eq_(s, 'CashInHand records the system figure',
+    SCHEMA[SHEETS.CASH_IN_HAND].indexOf('System Cash in Hand') !== -1, true);
+  eq_(s, 'source order includes CashInHand',
+    sourceSheetOrder_().indexOf(SHEETS.CASH_IN_HAND) !== -1, true);
+
+  // Public boundary (called from the sidebar).
+  eq_(s, 'getCashInHandPanel is public', typeof getCashInHandPanel, 'function');
+  eq_(s, 'saveCashInHand is public', typeof saveCashInHand, 'function');
+  eq_(s, 'deleteCashInHand is public', typeof deleteCashInHand, 'function');
 
   return s;
 }
