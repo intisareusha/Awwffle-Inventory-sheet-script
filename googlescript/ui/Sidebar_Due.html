@@ -25,11 +25,6 @@
     button:hover { background: #f8f9fa; }
     button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
     button.primary:hover { background: #1765cc; }
-    button.remove { color: #c5221f; border-color: #f5c6c2; padding: 3px 8px; font-size: 11px; }
-    button.remove:hover { background: #fce8e6; }
-    button.small { padding: 3px 8px; font-size: 11px; }
-    button.paid { color: #137333; border-color: #b7e1c5; padding: 3px 8px; font-size: 11px; }
-    button.paid:hover { background: #e6f4ea; }
     button:disabled { opacity: .5; cursor: default; }
 
     fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
@@ -41,49 +36,7 @@
     .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
     .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
 
-    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
-    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
-    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
-    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
-
-    .presets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-    .presets button { padding: 4px 8px; font-size: 11px; }
-    .presets button.active { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; font-weight: 500; }
-
-    .list { max-height: 260px; overflow-y: auto; }
-    .day-row {
-      display: flex; justify-content: space-between; align-items: center;
-      gap: 6px; padding: 6px 4px; border-bottom: 1px solid #f1f3f4; font-size: 12px;
-    }
-    .day-row:last-child { border-bottom: none; }
-    .day-row .d { font-weight: 500; white-space: nowrap; }
-    .day-row .r { color: #5f6368; flex: 1; font-size: 11px; }
-    .day-row .a { font-weight: 600; white-space: nowrap; }
-    .badge { font-size: 10px; padding: 1px 5px; border-radius: 8px; }
-    .badge.open { background: #fef7e0; color: #b06000; }
-    .badge.paid { background: #e6f4ea; color: #137333; }
-
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th, td { text-align: left; padding: 4px 5px; border-bottom: 1px solid #f1f3f4; }
-    th { color: #5f6368; font-weight: 600; font-size: 11px; }
-    td.n, th.n { text-align: right; }
-
     .muted { color: #5f6368; font-size: 11px; }
-    .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
-      text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
-
-    /* Loading state while a range query is in flight. */
-    #rangePane { position: relative; }
-    .busy-overlay {
-      position: absolute; inset: 0; background: rgba(255,255,255,.74);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 8px; font-size: 12px; color: #5f6368; z-index: 10; border-radius: 6px;
-    }
-    .spinner {
-      width: 22px; height: 22px; border: 2px solid #dadce0; border-top-color: #1a73e8;
-      border-radius: 50%; animation: duespin .7s linear infinite;
-    }
-    @keyframes duespin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -92,7 +45,7 @@
   <div id="msg" class="msg"></div>
 
   <fieldset>
-    <legend id="formLegend">New due</legend>
+    <legend>New due</legend>
     <div class="two">
       <div class="row">
         <label for="date">Date</label>
@@ -114,30 +67,7 @@
       <input type="text" id="notes" placeholder="e.g. paid next week, part payment">
     </div>
     <button type="button" id="save" class="primary" style="width:100%">Save due</button>
-    <button type="button" id="cancelEdit" class="small" style="width:100%;margin-top:6px;display:none">
-      Cancel edit
-    </button>
   </fieldset>
-
-  <div class="section-title">Dues in range</div>
-  <div id="rangePane">
-    <div class="presets" id="presets"></div>
-    <div class="two">
-      <div class="row"><label for="from">From</label><input type="date" id="from"></div>
-      <div class="row"><label for="to">To</label><input type="date" id="to"></div>
-    </div>
-    <button type="button" id="show" class="primary" style="width:100%;margin-bottom:10px">
-      Show Dues
-    </button>
-
-    <div id="tiles" class="tiles"></div>
-
-    <div class="section-title">Outstanding by customer</div>
-    <div id="byCustomer"></div>
-
-    <div class="section-title">Due records</div>
-    <div id="list" class="list"></div>
-  </div>
 
   <div class="muted" style="margin-top:10px">
     Only <b>Outstanding</b> dues reduce cash in hand. Marking one <b>Paid</b> brings the
@@ -147,27 +77,11 @@
 
 <script>
   var PANEL = null;
-  var EDITING = null;
-  var PRESETS = [
-    { key: 'all', label: 'All time' },
-    { key: 'today', label: 'Today' },
-    { key: 'yesterday', label: 'Yesterday' },
-    { key: 'thisMonth', label: 'This month' },
-    { key: 'lastMonth', label: 'Last month' },
-    { key: 'last7', label: 'Last 7 days' },
-    { key: 'last30', label: 'Last 30 days' }
-  ];
+  // Sentinel option that reveals the "new customer" text field.
+  var NEW_CUSTOMER = '__new__';
 
   function $(id) { return document.getElementById(id); }
-  function esc(s) {
-    return String(s === null || s === undefined ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-  function money(v) {
-    var n = Number(v);
-    if (!isFinite(n)) n = 0;
-    return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  }
+
   function showMsg(text, kind) {
     var el = $('msg');
     el.className = 'msg ' + (kind || 'ok');
@@ -175,23 +89,6 @@
     el.style.display = 'block';
   }
   function hideMsg() { $('msg').style.display = 'none'; }
-  function keyOf(d) {
-    var m = d.getMonth() + 1, day = d.getDate();
-    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
-  }
-  // Earliest due date the panel already knows about, used as the All-time start
-  // when the server did not send a dataStart.
-  function earliestRecordDate() {
-    var first = '';
-    ((PANEL && PANEL.records) || []).forEach(function (r) {
-      var k = String(r.date || '');
-      if (k && (!first || k < first)) first = k;
-    });
-    return first;
-  }
-
-  // Sentinel option that reveals the "new customer" text field.
-  var NEW_CUSTOMER = '__new__';
 
   // The dropdown lists the Customers tab (plus any name already used on a due),
   // so the owner picks instead of retyping. The last option adds a new name.
@@ -205,8 +102,6 @@
     pick.textContent = '(choose a customer)';
     sel.appendChild(pick);
 
-    // Customers tab names first, then any name already used on a due, so the
-    // list is never empty while data exists.
     var names = (PANEL && PANEL.customers || []).slice();
     var seen = {};
     names.forEach(function (n) { seen[String(n).toLowerCase()] = true; });
@@ -243,236 +138,6 @@
     return v === NEW_CUSTOMER ? $('newCustomer').value.trim() : v;
   }
 
-  // Select an existing customer (adding it to the list if a due references a
-  // name that is not in Customers yet).
-  function setCustomerField(name) {
-    var sel = $('customer');
-    var wanted = String(name || '').trim();
-
-    if (wanted) {
-      var found = false;
-      Array.prototype.forEach.call(sel.options, function (o) {
-        if (o.value === wanted) found = true;
-      });
-      if (!found) {
-        var o = document.createElement('option');
-        o.value = wanted;
-        o.textContent = wanted;
-        sel.insertBefore(o, sel.lastElementChild);   // before the "+ Add new" option
-      }
-    }
-
-    sel.value = wanted || '';
-    toggleNewCustomer();
-  }
-
-  function buildPresets() {
-    var el = $('presets');
-    el.innerHTML = '';
-    PRESETS.forEach(function (p) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = p.label;
-      b.setAttribute('data-preset', p.key);
-      b.addEventListener('click', function () { applyPreset(p.key); });
-      el.appendChild(b);
-    });
-  }
-
-  function setPresetActive(key) {
-    Array.prototype.forEach.call($('presets').querySelectorAll('button'), function (b) {
-      b.className = b.getAttribute('data-preset') === key ? 'active' : '';
-    });
-  }
-
-  // Dims the range pane behind a spinner and disables its controls while a query
-  // runs, matching the Discount / Summary / POS panes.
-  function setBusy(busy) {
-    var pane = $('rangePane');
-    if (!pane) return;
-
-    Array.prototype.forEach.call(pane.querySelectorAll('button, select, input'), function (el) {
-      el.disabled = busy;
-    });
-
-    var overlay = pane.querySelector('.busy-overlay');
-    if (busy) {
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.className = 'busy-overlay';
-        overlay.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
-        pane.appendChild(overlay);
-      }
-    } else if (overlay) {
-      overlay.parentNode.removeChild(overlay);
-    }
-  }
-
-  // Picking a preset resolves the range on the server (the same resolver the
-  // Summary → Bazar tab uses) and immediately runs the search with the shared
-  // spinner. "All time" uses the panel's real start and end.
-  function applyPreset(key) {
-    setPresetActive(key);
-
-    if (key === 'all') {
-      $('from').value = (PANEL && PANEL.dataStart) || earliestRecordDate() || keyOf(new Date());
-      $('to').value = (PANEL && PANEL.dataEnd) || (PANEL && PANEL.today) || keyOf(new Date());
-      loadList();
-      return;
-    }
-
-    setBusy(true);
-    google.script.run
-      .withSuccessHandler(function (r) {
-        if (!r || !r.start) { setBusy(false); return; }
-        $('from').value = r.start;
-        $('to').value = r.end;
-        loadList();
-      })
-      .withFailureHandler(function (err) {
-        setBusy(false);
-        showMsg('Could not work out that date range: ' +
-          (err && err.message ? err.message : err), 'error');
-      })
-      .resolveFinancePreset(key, (PANEL && PANEL.today) || keyOf(new Date()));
-  }
-
-  function loadList() {
-    // Read the dates before going busy: the busy state disables the controls, and
-    // the query must carry the values the user can see.
-    var start = $('from').value;
-    var end = $('to').value;
-
-    setBusy(true);
-    google.script.run
-      .withSuccessHandler(function (d) {
-        setBusy(false);
-        if (!d) { showMsg('The server returned no answer.', 'error'); return; }
-        try {
-          renderTiles(d);
-          renderByCustomer(d);
-          renderList(d);
-        } catch (e) {
-          showMsg('Could not display dues: ' + e.message, 'error');
-          $('list').innerHTML = '<div class="muted">Could not display dues: ' +
-            esc(e.message) + '</div>';
-        }
-      })
-      .withFailureHandler(function (err) {
-        setBusy(false);
-        var msg = 'Could not load dues: ' + (err && err.message ? err.message : err);
-        showMsg(msg, 'error');
-        $('list').innerHTML = '<div class="muted">' + esc(msg) + '</div>';
-      })
-      .getDueList(start, end);
-  }
-
-  function renderTiles(d) {
-    $('tiles').innerHTML =
-      tile('Outstanding', '৳' + money(d.totalOutstanding)) +
-      tile('Open dues', d.outstandingCount) +
-      tile('Accrued in range', '৳' + money(d.totalAccrued)) +
-      tile('Records', d.count);
-  }
-
-  function tile(k, v) {
-    return '<div class="tile"><div class="k">' + esc(k) + '</div>' +
-      '<div class="v">' + esc(v) + '</div></div>';
-  }
-
-  function renderByCustomer(d) {
-    var el = $('byCustomer');
-    var rows = (d.byCustomer || []).filter(function (c) { return c.outstanding > 0; });
-    if (!rows.length) {
-      el.innerHTML = '<div class="muted">No outstanding dues in this range.</div>';
-      return;
-    }
-    el.innerHTML = '<table><thead><tr><th>Customer</th><th class="n">Open</th>' +
-      '<th class="n">Outstanding</th></tr></thead><tbody>' +
-      rows.map(function (c) {
-        return '<tr><td>' + esc(c.customer) + '</td>' +
-          '<td class="n">' + c.openCount + '</td>' +
-          '<td class="n">৳' + money(c.outstanding) + '</td></tr>';
-      }).join('') + '</tbody></table>';
-  }
-
-  function renderList(d) {
-    var el = $('list');
-    var records = d.records || [];
-    if (!records.length) {
-      var have = (PANEL && PANEL.records || []).length;
-      var range = d.range && d.range.start
-        ? ' (' + d.range.start + ' → ' + d.range.end + ')' : '';
-      el.innerHTML = '<div class="muted">' +
-        (have ? 'No dues in this range' + range + '.'
-              : 'No dues recorded yet — add one above.') +
-        '</div>';
-      return;
-    }
-    el.innerHTML = records.map(function (r) {
-      var paid = r.status === 'Paid';
-      return '<div class="day-row">' +
-        '<span class="d">' + esc(r.date) + '</span>' +
-        '<span class="r">' + esc(r.customer) +
-          (r.notes ? ' · ' + esc(r.notes) : '') + '</span>' +
-        '<span class="a">৳' + money(r.amount) + '</span>' +
-        '<span class="badge ' + (paid ? 'paid' : 'open') + '">' + esc(r.status) + '</span>' +
-        '<button type="button" class="small" data-id="' + esc(r.dueId) + '">Edit</button>' +
-        '<button type="button" class="' + (paid ? 'small' : 'paid') + '" data-paid="' + esc(r.dueId) +
-          '" data-state="' + (paid ? 'false' : 'true') + '">' +
-          (paid ? 'Reopen' : 'Mark paid') + '</button>' +
-        '<button type="button" class="remove" data-del="' + esc(r.dueId) + '">Delete</button>' +
-        '</div>';
-    }).join('');
-
-    Array.prototype.forEach.call(el.querySelectorAll('[data-id]'), function (btn) {
-      btn.addEventListener('click', function () {
-        startEdit(records.filter(function (x) {
-          return x.dueId === btn.getAttribute('data-id');
-        })[0]);
-      });
-    });
-    Array.prototype.forEach.call(el.querySelectorAll('[data-paid]'), function (btn) {
-      btn.addEventListener('click', function () {
-        togglePaid(btn.getAttribute('data-paid'), btn.getAttribute('data-state') === 'true');
-      });
-    });
-    Array.prototype.forEach.call(el.querySelectorAll('[data-del]'), function (btn) {
-      btn.addEventListener('click', function () { remove(btn.getAttribute('data-del')); });
-    });
-  }
-
-  function startEdit(r) {
-    if (!r) return;
-    EDITING = r;
-    $('date').value = r.date;
-    $('amount').value = r.amount == null ? '' : r.amount;
-    setCustomerField(r.customer);
-    $('notes').value = r.notes || '';
-    $('formLegend').textContent = 'Editing due from ' + r.date;
-    $('save').textContent = 'Update due';
-    $('cancelEdit').style.display = 'block';
-    hideMsg();
-  }
-
-  function stopEdit() {
-    EDITING = null;
-    $('formLegend').textContent = 'New due';
-    $('save').textContent = 'Save due';
-    $('cancelEdit').style.display = 'none';
-    $('amount').value = '';
-    setCustomerField('');
-    $('notes').value = '';
-  }
-
-  function applyPanel(panel) {
-    PANEL = panel;
-    renderCustomers();
-    $('from').value = panel.dataStart || earliestRecordDate() || panel.today;
-    $('to').value = panel.dataEnd || panel.today;
-    setPresetActive('all');
-  }
-
   function save() {
     hideMsg();
     var payload = {
@@ -481,7 +146,6 @@
       amount: $('amount').value,
       notes: $('notes').value
     };
-    if (EDITING) payload.dueId = EDITING.dueId;
 
     var btn = $('save');
     btn.disabled = true;
@@ -489,12 +153,15 @@
       .withSuccessHandler(function (res) {
         btn.disabled = false;
         if (!res.ok) { showMsg((res.errors || ['Could not save.']).join('\n'), 'error'); return; }
-        applyPanel(res.panel);
-        stopEdit();
+        PANEL = res.panel;
+        renderCustomers();
         showMsg(res.message, 'ok');
+        $('amount').value = '';
+        $('notes').value = '';
+        $('customer').value = '';
+        $('newCustomer').value = '';
+        toggleNewCustomer();
         $('date').value = PANEL.today;
-        setPresetActive('all');
-        loadList();
       })
       .withFailureHandler(function (err) {
         btn.disabled = false;
@@ -503,60 +170,16 @@
       .saveDue(payload);
   }
 
-  function togglePaid(id, paid) {
-    hideMsg();
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (!res.ok) { showMsg((res.errors || ['Could not update.']).join('\n'), 'error'); return; }
-        applyPanel(res.panel);
-        showMsg(res.message, 'ok');
-        loadList();
-      })
-      .withFailureHandler(function (err) {
-        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
-      })
-      .setDuePaid({ dueId: id, paid: paid });
-  }
-
-  function remove(id) {
-    hideMsg();
-    var rec = (PANEL && PANEL.records || []).filter(function (x) { return x.dueId === id; })[0];
-    var msg = rec && rec.status !== 'Paid'
-      ? 'Delete this outstanding due?\n\nCash in hand will rise by ৳' + money(rec.amount) +
-        ' because the deduction is removed.'
-      : 'Delete this paid due?\n\nIt no longer affects cash in hand.';
-    if (!confirm(msg)) return;
-
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (!res.ok) { showMsg((res.errors || ['Could not delete.']).join('\n'), 'error'); return; }
-        applyPanel(res.panel);
-        if (EDITING && EDITING.dueId === id) stopEdit();
-        showMsg(res.message, 'ok');
-        loadList();
-      })
-      .withFailureHandler(function (err) {
-        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
-      })
-      .deleteDue(id);
-  }
-
   // ---- Bootstrap ----
   try {
-    buildPresets();
     $('save').addEventListener('click', save);
-    $('cancelEdit').addEventListener('click', stopEdit);
-    $('show').addEventListener('click', loadList);
     $('customer').addEventListener('change', toggleNewCustomer);
-    $('from').addEventListener('change', function () { setPresetActive(''); });
-    $('to').addEventListener('change', function () { setPresetActive(''); });
 
     google.script.run
       .withSuccessHandler(function (panel) {
-        applyPanel(panel);
+        PANEL = panel;
+        renderCustomers();
         $('date').value = panel.today;
-        setPresetActive('all');
-        loadList();
       })
       .withFailureHandler(function (err) {
         showMsg('Could not load the form: ' + (err && err.message ? err.message : err), 'error');

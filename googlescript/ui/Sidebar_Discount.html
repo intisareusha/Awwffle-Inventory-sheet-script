@@ -25,9 +25,6 @@
     button:hover { background: #f8f9fa; }
     button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; font-weight: 500; }
     button.primary:hover { background: #1765cc; }
-    button.remove { color: #c5221f; border-color: #f5c6c2; padding: 3px 8px; font-size: 11px; }
-    button.remove:hover { background: #fce8e6; }
-    button.small { padding: 3px 8px; font-size: 11px; }
     button:disabled { opacity: .5; cursor: default; }
 
     fieldset { border: 1px solid #e0e0e0; border-radius: 6px; padding: 9px; margin: 0 0 10px; }
@@ -39,40 +36,7 @@
     .msg.ok { background: #e6f4ea; color: #137333; border: 1px solid #b7e1c5; }
     .msg.warn { background: #fef7e0; color: #b06000; border: 1px solid #feefc3; }
 
-    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
-    .tile { background: #f8f9fa; border-radius: 6px; padding: 8px 9px; }
-    .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
-    .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
-
-    .presets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-    .presets button { padding: 4px 8px; font-size: 11px; }
-    .presets button.active { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; font-weight: 500; }
-
-    .list { max-height: 300px; overflow-y: auto; }
-    .day-row {
-      display: flex; justify-content: space-between; align-items: center;
-      gap: 8px; padding: 6px 4px; border-bottom: 1px solid #f1f3f4; font-size: 12px;
-    }
-    .day-row:last-child { border-bottom: none; }
-    .day-row .d { font-weight: 500; white-space: nowrap; }
-    .day-row .r { color: #5f6368; flex: 1; font-size: 11px; }
-    .day-row .a { font-weight: 600; white-space: nowrap; }
     .muted { color: #5f6368; font-size: 11px; }
-    .section-title { font-size: 11px; font-weight: 600; color: #5f6368;
-      text-transform: uppercase; letter-spacing: .3px; margin: 12px 0 5px; }
-
-    /* Loading state while a range query is in flight. */
-    #rangePane { position: relative; }
-    .busy-overlay {
-      position: absolute; inset: 0; background: rgba(255,255,255,.74);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 8px; font-size: 12px; color: #5f6368; z-index: 10; border-radius: 6px;
-    }
-    .spinner {
-      width: 22px; height: 22px; border: 2px solid #dadce0; border-top-color: #1a73e8;
-      border-radius: 50%; animation: discspin .7s linear infinite;
-    }
-    @keyframes discspin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -81,7 +45,7 @@
   <div id="msg" class="msg"></div>
 
   <fieldset>
-    <legend id="formLegend">Today's discount</legend>
+    <legend>Today's discount</legend>
     <div class="two">
       <div class="row">
         <label for="date">Date</label>
@@ -97,25 +61,7 @@
       <input type="text" id="notes" placeholder="e.g. staff meal, regular customer">
     </div>
     <button type="button" id="save" class="primary" style="width:100%">Save discount</button>
-    <button type="button" id="cancelEdit" class="small" style="width:100%;margin-top:6px;display:none">
-      Cancel edit
-    </button>
   </fieldset>
-
-  <div class="section-title">Discounts in range</div>
-  <div id="rangePane">
-    <div class="presets" id="presets"></div>
-    <div class="two">
-      <div class="row"><label for="from">From</label><input type="date" id="from"></div>
-      <div class="row"><label for="to">To</label><input type="date" id="to"></div>
-    </div>
-    <button type="button" id="show" class="primary" style="width:100%;margin-bottom:10px">
-      Show Discounts
-    </button>
-
-    <div id="tiles" class="tiles"></div>
-    <div id="list" class="list"></div>
-  </div>
 
   <div class="muted" style="margin-top:10px">
     One discount per day. Saving the same date corrects that day instead of adding a
@@ -124,27 +70,9 @@
 
 <script>
   var PANEL = null;
-  var EDITING = null;
-  var PRESETS = [
-    { key: 'all', label: 'All time' },
-    { key: 'today', label: 'Today' },
-    { key: 'yesterday', label: 'Yesterday' },
-    { key: 'thisMonth', label: 'This month' },
-    { key: 'lastMonth', label: 'Last month' },
-    { key: 'last7', label: 'Last 7 days' },
-    { key: 'last30', label: 'Last 30 days' }
-  ];
 
   function $(id) { return document.getElementById(id); }
-  function esc(s) {
-    return String(s === null || s === undefined ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-  function money(v) {
-    var n = Number(v);
-    if (!isFinite(n)) n = 0;
-    return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  }
+
   function showMsg(text, kind) {
     var el = $('msg');
     el.className = 'msg ' + (kind || 'ok');
@@ -152,186 +80,6 @@
     el.style.display = 'block';
   }
   function hideMsg() { $('msg').style.display = 'none'; }
-  function keyOf(d) {
-    var m = d.getMonth() + 1, day = d.getDate();
-    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
-  }
-  // Earliest discount date the panel already knows about. Used as the All-time
-  // start so the range begins at the data rather than at today even if the
-  // server did not send a dataStart.
-  function earliestRecordDate() {
-    var first = '';
-    ((PANEL && PANEL.records) || []).forEach(function (r) {
-      var k = String(r.date || '');
-      if (k && (!first || k < first)) first = k;
-    });
-    return first;
-  }
-
-  function buildPresets() {
-    var el = $('presets');
-    el.innerHTML = '';
-    PRESETS.forEach(function (p) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = p.label;
-      b.setAttribute('data-preset', p.key);
-      b.addEventListener('click', function () { applyPreset(p.key); });
-      el.appendChild(b);
-    });
-  }
-
-  function setPresetActive(key) {
-    Array.prototype.forEach.call($('presets').querySelectorAll('button'), function (b) {
-      b.className = b.getAttribute('data-preset') === key ? 'active' : '';
-    });
-  }
-
-  // Dims the range pane behind a spinner and disables its controls while a query
-  // runs, so a second click cannot fire another request and leave two answers
-  // racing for the screen. Same behaviour as the Summary and POS panes.
-  function setBusy(busy) {
-    var pane = $('rangePane');
-    if (!pane) return;
-
-    Array.prototype.forEach.call(pane.querySelectorAll('button, select, input'), function (el) {
-      el.disabled = busy;
-    });
-
-    var overlay = pane.querySelector('.busy-overlay');
-    if (busy) {
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.className = 'busy-overlay';
-        overlay.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
-        pane.appendChild(overlay);
-      }
-    } else if (overlay) {
-      overlay.parentNode.removeChild(overlay);
-    }
-  }
-
-  // Picking a preset resolves the range on the server (the same resolver the
-  // Summary → Bazar tab uses) and immediately runs the search, showing the
-  // shared spinner. "All time" uses the panel's real start and end, so it can
-  // never collapse to a single day.
-  function applyPreset(key) {
-    setPresetActive(key);
-
-    if (key === 'all') {
-      $('from').value = (PANEL && PANEL.dataStart) || earliestRecordDate() || keyOf(new Date());
-      $('to').value = (PANEL && PANEL.dataEnd) || (PANEL && PANEL.today) || keyOf(new Date());
-      loadList();
-      return;
-    }
-
-    setBusy(true);
-    google.script.run
-      .withSuccessHandler(function (r) {
-        if (!r || !r.start) { setBusy(false); return; }
-        $('from').value = r.start;
-        $('to').value = r.end;
-        loadList();
-      })
-      .withFailureHandler(function (err) {
-        setBusy(false);
-        showMsg('Could not work out that date range: ' +
-          (err && err.message ? err.message : err), 'error');
-      })
-      .resolveFinancePreset(key, (PANEL && PANEL.today) || keyOf(new Date()));
-  }
-
-  function loadList() {
-    // Read the dates before going busy: the busy state disables the controls, and
-    // the query must carry the values the user can see.
-    var start = $('from').value;
-    var end = $('to').value;
-
-    setBusy(true);
-    google.script.run
-      .withSuccessHandler(function (d) {
-        setBusy(false);
-        if (!d) { showMsg('The server returned no answer.', 'error'); return; }
-        try {
-          renderTiles(d);
-          renderList(d);
-        } catch (e) {
-          showMsg('Could not display discounts: ' + e.message, 'error');
-        }
-      })
-      .withFailureHandler(function (err) {
-        setBusy(false);
-        showMsg('Could not load discounts: ' + (err && err.message ? err.message : err), 'error');
-      })
-      .getDiscountList(start, end);
-  }
-
-  function renderTiles(d) {
-    $('tiles').innerHTML =
-      tile('Total discount', '৳' + money(d.total)) +
-      tile('Days recorded', d.count);
-  }
-
-  function tile(k, v) {
-    return '<div class="tile"><div class="k">' + esc(k) + '</div>' +
-      '<div class="v">' + esc(v) + '</div></div>';
-  }
-
-  function renderList(d) {
-    var el = $('list');
-    var records = d.records || [];
-    if (!records.length) {
-      var have = (PANEL && PANEL.records || []).length;
-      var range = d.range && d.range.start
-        ? ' (' + d.range.start + ' → ' + d.range.end + ')' : '';
-      el.innerHTML = '<div class="muted">' +
-        (have ? 'No discounts in this range' + range + '.'
-              : 'No discounts recorded yet — add one above.') +
-        '</div>';
-      return;
-    }
-    el.innerHTML = records.map(function (r) {
-      return '<div class="day-row">' +
-        '<span class="d">' + esc(r.date) + '</span>' +
-        '<span class="r">' + esc(r.notes || '') + '</span>' +
-        '<span class="a">৳' + money(r.amount) + '</span>' +
-        '<button type="button" class="small" data-id="' + esc(r.discountId) + '">Edit</button>' +
-        '<button type="button" class="remove" data-del="' + esc(r.discountId) + '">Delete</button>' +
-        '</div>';
-    }).join('');
-
-    Array.prototype.forEach.call(el.querySelectorAll('[data-id]'), function (btn) {
-      btn.addEventListener('click', function () {
-        startEdit(records.filter(function (x) {
-          return x.discountId === btn.getAttribute('data-id');
-        })[0]);
-      });
-    });
-    Array.prototype.forEach.call(el.querySelectorAll('[data-del]'), function (btn) {
-      btn.addEventListener('click', function () { remove(btn.getAttribute('data-del')); });
-    });
-  }
-
-  function startEdit(r) {
-    if (!r) return;
-    EDITING = r;
-    $('date').value = r.date;
-    $('amount').value = r.amount == null ? '' : r.amount;
-    $('notes').value = r.notes || '';
-    $('formLegend').textContent = 'Correcting ' + r.date;
-    $('save').textContent = 'Update discount';
-    $('cancelEdit').style.display = 'block';
-    hideMsg();
-  }
-
-  function stopEdit() {
-    EDITING = null;
-    $('formLegend').textContent = "Today's discount";
-    $('save').textContent = 'Save discount';
-    $('cancelEdit').style.display = 'none';
-    $('amount').value = '';
-    $('notes').value = '';
-  }
 
   function save() {
     hideMsg();
@@ -340,7 +88,6 @@
       amount: $('amount').value,
       notes: $('notes').value
     };
-    if (EDITING) payload.discountId = EDITING.discountId;
 
     var btn = $('save');
     btn.disabled = true;
@@ -349,13 +96,10 @@
         btn.disabled = false;
         if (!res.ok) { showMsg((res.errors || ['Could not save.']).join('\n'), 'error'); return; }
         PANEL = res.panel;
-        stopEdit();
         showMsg(res.message, 'ok');
+        $('amount').value = '';
+        $('notes').value = '';
         $('date').value = PANEL.today;
-        setPresetActive('all');
-        $('from').value = PANEL.dataStart || earliestRecordDate() || PANEL.today;
-        $('to').value = PANEL.dataEnd || PANEL.today;
-        loadList();
       })
       .withFailureHandler(function (err) {
         btn.disabled = false;
@@ -364,41 +108,14 @@
       .saveDiscount(payload);
   }
 
-  function remove(id) {
-    hideMsg();
-    if (!confirm('Delete this discount?\n\nCash in hand will rise by the removed amount.')) return;
-
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (!res.ok) { showMsg((res.errors || ['Could not delete.']).join('\n'), 'error'); return; }
-        PANEL = res.panel;
-        if (EDITING && EDITING.discountId === id) stopEdit();
-        showMsg(res.message, 'ok');
-        loadList();
-      })
-      .withFailureHandler(function (err) {
-        showMsg('Error: ' + (err && err.message ? err.message : err), 'error');
-      })
-      .deleteDiscount(id);
-  }
-
   // ---- Bootstrap ----
   try {
-    buildPresets();
     $('save').addEventListener('click', save);
-    $('cancelEdit').addEventListener('click', stopEdit);
-    $('show').addEventListener('click', loadList);
-    $('from').addEventListener('change', function () { setPresetActive(''); });
-    $('to').addEventListener('change', function () { setPresetActive(''); });
 
     google.script.run
       .withSuccessHandler(function (panel) {
         PANEL = panel;
         $('date').value = panel.today;
-        $('from').value = panel.dataStart || earliestRecordDate() || panel.today;
-        $('to').value = panel.dataEnd || panel.today;
-        setPresetActive('all');
-        loadList();
       })
       .withFailureHandler(function (err) {
         showMsg('Could not load the form: ' + (err && err.message ? err.message : err), 'error');
