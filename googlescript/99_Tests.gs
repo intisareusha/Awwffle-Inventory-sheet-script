@@ -1877,6 +1877,7 @@ function testFinance() {
   eq_(s, 'saveDiscount is public', typeof saveDiscount, 'function');
   eq_(s, 'deleteDiscount is public', typeof deleteDiscount, 'function');
   eq_(s, 'getDuePanel is public', typeof getDuePanel, 'function');
+  eq_(s, 'getCustomerNames is public', typeof getCustomerNames, 'function');
   eq_(s, 'getDueList is public', typeof getDueList, 'function');
   eq_(s, 'saveDue is public', typeof saveDue, 'function');
   eq_(s, 'setDuePaid is public', typeof setDuePaid, 'function');

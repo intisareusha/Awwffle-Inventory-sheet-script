@@ -170,6 +170,22 @@
       .saveDue(payload);
   }
 
+  // Fetch the Customer list on its own, so the dropdown fills even if the panel
+  // call fails or returns a different shape.
+  function refreshCustomers() {
+    google.script.run
+      .withSuccessHandler(function (names) {
+        PANEL = PANEL || {};
+        if (names && names.length) PANEL.customers = names;
+        renderCustomers();
+      })
+      .withFailureHandler(function () {
+        // The panel call below can still supply the list; don't shout here.
+        renderCustomers();
+      })
+      .getCustomerNames();
+  }
+
   // ---- Bootstrap ----
   try {
     $('save').addEventListener('click', save);
@@ -177,14 +193,20 @@
 
     google.script.run
       .withSuccessHandler(function (panel) {
-        PANEL = panel;
+        PANEL = PANEL || {};
+        if (panel) {
+          if (panel.customers && panel.customers.length) PANEL.customers = panel.customers;
+          if (panel.records) PANEL.records = panel.records;
+          if (panel.today) $('date').value = panel.today;
+        }
         renderCustomers();
-        $('date').value = panel.today;
       })
       .withFailureHandler(function (err) {
         showMsg('Could not load the form: ' + (err && err.message ? err.message : err), 'error');
       })
       .getDuePanel();
+
+    refreshCustomers();
   } catch (e) {
     showMsg('The form failed to start: ' + e.message, 'error');
   }

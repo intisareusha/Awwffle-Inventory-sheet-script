@@ -22,6 +22,23 @@ function getSheet_(name) {
   return sheet;
 }
 
+/**
+ * Finds a sheet by name without creating one, tolerating surrounding whitespace
+ * and case differences (a tab renamed "customers " should still be found).
+ */
+function findNamedSheet_(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var exact = ss.getSheetByName(name);
+  if (exact) return exact;
+
+  var wanted = String(name).trim().toLowerCase();
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (String(sheets[i].getName()).trim().toLowerCase() === wanted) return sheets[i];
+  }
+  return null;
+}
+
 /** True when a sheet with this name exists. */
 function sheetExists_(name) {
   return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name) !== null;

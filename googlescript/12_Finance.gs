@@ -61,6 +61,11 @@ function getDueList(startDate, endDate) {
   return buildDueList_(startDate, endDate);
 }
 
+/** The Customer dropdown list: Customers tab names, plus names used on dues. */
+function getCustomerNames() {
+  return customerNames_();
+}
+
 /** Records a new due or edits an existing one. */
 function saveDue(payload) {
   return saveDue_(payload);
@@ -303,19 +308,33 @@ function customerNames_() {
     out.push(clean);
   }
 
-  // Read the Customers tab by position (column A = name, column B = Active).
-  // Header-key reads silently return nothing when a header has stray whitespace,
-  // which left the sidebar dropdown empty even though the tab was populated.
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CUSTOMERS);
+  // Read the Customers tab by position, not by header key. A header with stray
+  // whitespace (or a leading blank row) made the key-based read return nothing,
+  // so the dropdown was empty even though the tab was populated. Column A is the
+  // name; the Active column is found by its header, defaulting to column B. The
+  // header row itself is skipped by name.
+  var sheet = findNamedSheet_(SHEETS.CUSTOMERS);
   if (sheet) {
     var lastRow = sheet.getLastRow();
     var lastCol = sheet.getLastColumn();
-    if (lastRow >= 2 && lastCol >= 1) {
-      sheet.getRange(2, 1, lastRow - 1, lastCol).getValues().forEach(function (row) {
-        var active = String(row.length > 1 ? row[1] : '').trim().toUpperCase();
-        if (active === 'FALSE') return;   // deactivated customers are hidden
-        add(row[0]);
-      });
+    if (lastRow >= 1 && lastCol >= 1) {
+      var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+      var activeCol = -1;
+      var header = values[0] || [];
+      for (var h = 0; h < header.length; h++) {
+        if (String(header[h]).trim().toLowerCase() === 'active') { activeCol = h; break; }
+      }
+      if (activeCol < 0) activeCol = 1;
+
+      for (var r = 0; r < values.length; r++) {
+        var name = String(values[r][0] === null || values[r][0] === undefined ? '' : values[r][0]).trim();
+        if (!name) continue;
+        if (name.toLowerCase() === 'customer') continue;   // the header row
+        var active = String(values[r][activeCol]).trim().toUpperCase();
+        if (active === 'FALSE') continue;                  // deactivated customers
+        add(name);
+      }
     }
   }
 
