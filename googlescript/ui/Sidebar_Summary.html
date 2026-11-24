@@ -46,6 +46,8 @@
     .tile .k { font-size: 10px; color: #5f6368; text-transform: uppercase; letter-spacing: .3px; }
     .tile .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
     .tile.wide { grid-column: 1 / -1; }
+    .tiles.batch { grid-template-columns: repeat(4, 1fr); }
+    .tiles.batch .tile.half { grid-column: span 2; }
     .tile.money .v { color: #188038; }
     .tile.used .v { color: #a50e0e; }   /* what has been consumed — red */
     .tile.good .v { color: #188038; }   /* what remains — green */
@@ -607,18 +609,22 @@
 
     var totalAvgCost = 0;
     var totalCostPerOpenDay = 0;
+    var totalRecipeCost = 0;
     shown.forEach(function (p) {
       totalAvgCost += d.costPerBatch[p] || 0;
       totalCostPerOpenDay += d.costPerOpenDay[p] || 0;
+      totalRecipeCost += d.costByPreparation[p] || 0;
     });
 
     var costLabel = selected ? 'Avg ' + selected + ' Cost' : 'Total Avg Cost';
     var perDayLabel = selected
       ? selected + ' Cost / Open Day' : 'Total Cost / OD';
 
-    var tiles = '<div class="tiles">' +
-      moneyTile(costLabel, totalAvgCost) +
-      moneyTile(perDayLabel, d.openDays > 0 ? totalCostPerOpenDay : '') +
+    var tiles = '<div class="tiles batch">' +
+      '<div class="tile used wide"><div class="k">Total Recipe Cost</div>' +
+        '<div class="v">' + esc(moneyV(totalRecipeCost)) + '</div></div>' +
+      moneyTile(costLabel, totalAvgCost, 'half') +
+      moneyTile(perDayLabel, d.openDays > 0 ? totalCostPerOpenDay : '', 'half') +
       tile('Calendar days', d.calendarDays) +
       tile('Open days', d.openDays) +
       tile('Closed days', d.closedDays) +
@@ -952,8 +958,9 @@
 
   // A money tile: same shape as tile(), but the value carries the taka sign and
   // the green money colour. Use only for currency figures — not counts or days.
-  function moneyTile(k, n) {
-    return '<div class="tile money"><div class="k">' + esc(k) + '</div>' +
+  function moneyTile(k, n, extra) {
+    return '<div class="tile money' + (extra ? ' ' + extra : '') + '">' +
+      '<div class="k">' + esc(k) + '</div>' +
       '<div class="v">' + esc(moneyV(n)) + '</div></div>';
   }
 

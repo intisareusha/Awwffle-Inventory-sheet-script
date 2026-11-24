@@ -1,6 +1,11 @@
 # Awwffle Build Plan — Phase by Phase
 
-**Status:** Awaiting owner review
+**Status (updated 24 Nov 2026):** Phases 2–7 are built, reviewed and committed. The
+Summary views (6.5–6.7) and the finance ledgers (discounts, dues, customer list) are
+built and in daily use, and the **Cash in Hand** module was added on request. The
+current work is live data entry plus the remaining Phase 8–10 scope. All Time /
+monthly *report sheets* were not built as separate tabs — those figures are computed
+live in the Summary and Daily Waffles sidebars.
 **Companion document:** `Awwffle_Inventory_System_README.md` (v0.3) — that document defines *what* to build. This one defines *how we work* and *in what order*.
 **Source of truth for rules:** README §13. If this plan and the README ever disagree, the README wins.
 
@@ -16,7 +21,9 @@
 4. **You can actually review it.** Nine small reviews are reviewable. One 4,000-line drop is not — you would have to trust it rather than check it.
 5. **Live data safety.** Later phases write to the real spreadsheet. By then the schema is already verified by you, so the write paths are built against something agreed.
 
-**Nothing is written to your live Google Sheet until phase 3 is approved by you.** Phases 2 onward run against a scratch copy.
+**Nothing is written to your live Google Sheet until phase 3 is approved.** That gate
+was honoured (Phases 2–3 ran against a scratch copy); the live workbook is now in
+daily use.
 
 ### How a phase works
 
@@ -58,36 +65,51 @@ Awwffle-spreadsheet/
 │
 └── googlescript/                           # ← everything you paste into Apps Script
     │
-    ├── 00_Config.gs                        # constants, sheet names, headers, feature flags
+    ├── 00_Config.gs                        # constants, sheet names, headers, seeds
     ├── 01_Utils.gs                         # IDs, date helpers, validation, unit maths, logging
     ├── 02_ItemMaster.gs                    # the 43 items, groups, base units, per-piece weights
     ├── 03_Schema.gs                        # single definition of every sheet's columns
+    ├── 03b_PosProducts.gs                  # 18 POS products, extras first
+    ├── 03c_MeasurementsSeed.gs             # 17×5 recipe seed
     ├── 04_Setup.gs                         # create sheets/headers/menus/protections; idempotent
     ├── 05_Migration.gs                     # import history from the Drive copy; reconciliation
+    ├── 05b_MigrationWorkers.gs
+    ├── 05c_MigrationPos.gs
+    ├── 05d_MigrationRest.gs
+    ├── 05e_MigrationReport.gs              # shared append helpers + report
     ├── 06_Bazar.gs                         # purchases, invoice refs, auto stock increase
     ├── 07_Measurements.gs                  # fixed recipe matrix (protected)
     ├── 08_Batches.gs                       # daily batch entry
     ├── 09_Stock.gs                         # consumption, weighted avg, remaining, est. days/batches
-    ├── 10_POS.gs                           # Cr. Stock paste, snapshots, counter reset, invoices
-    ├── 11_Sales.gs                         # sales derivation, discount/due, cash in hand, profit
-    ├── 12_Reports.gs                       # All Time, monthly, date-range reports
-    ├── 13_Adjustments.gs                   # wastage / damage / manual stock corrections
+    ├── 10_ClosedDays.gs                    # closed-day list (replaces weekday rule)
+    ├── 10_POS.gs                           # Cr. Stock paste, snapshots, counter reset, invoices, Daily Waffles
+    ├── 11_Summary.gs                       # batched / bazar / stock summary + preset ranges
+    ├── 12_Finance.gs                       # discounts, dues, customer list, cash-in-hand formula
+    ├── 13_Adjustments.gs                   # manual stock counts / corrections
     ├── 14_Menu.gs                          # onOpen menu + all UI entry points
+    ├── 15_CashInHand.gs                    # daily physical cash snapshot vs system cash in hand
     ├── 99_Tests.gs                         # self-tests, hidden from the menu for daily use
     │
     ├── ui/
     │   ├── Sidebar_Bazar.html
     │   ├── Sidebar_Batches.html
     │   ├── Sidebar_POS.html
-    │   ├── Sidebar_Adjustment.html
-    │   └── common.html                     # shared CSS/JS, included by the others
+    │   ├── Sidebar_Summary.html
+    │   ├── Sidebar_ClosedDays.html
+    │   ├── Sidebar_ManualStock.html
+    │   ├── Sidebar_Discount.html
+    │   ├── Sidebar_Due.html
+    │   └── Sidebar_CashInHand.html
     │
     └── docs/
         ├── SETUP.md                        # first-time install, step by step
-        ├── UPDATE.md                       # how to apply a new version safely
         ├── MIGRATION.md                    # how to run the import and read its report
-        ├── SHEETS.md                       # what each sheet is, and which cells are editable
-        └── BACKUP.md                       # backup / restore procedure
+        ├── BAZAR.md
+        ├── BATCHES.md
+        ├── STOCK.md
+        ├── SUMMARY.md
+        ├── FINANCE.md                      # discounts, dues, cash in hand
+        └── CASH_IN_HAND.md                 # physical cash snapshot
 ```
 
 ### Why this shape
@@ -120,13 +142,20 @@ Source records are narrow and append-only; every report is a filter over them (R
 | `POS_Products` | one row per POS product | sales, price history |
 | `PriceHistory` | one row per price change | historic profit |
 | `Invoices` | one row per date | invoice counts |
-| `DiscountDue` | one row per date | cash in hand |
+| `Discounts` | one row per day | cash in hand |
+| `Dues` | one row per customer amount (Outstanding/Paid) | cash in hand |
+| `Customers` | one row per customer name (dropdown) | due entry |
+| `CashInHand` | one row per day (physical cash snapshot) | reconciliation vs cash in hand |
+| `DiscountDue` | legacy monthly aggregates | **not read** — kept as audit history |
 | `ClosedDays` | one row per closed date | all per-day averages |
-| `Adjustments` | one row per wastage/adjustment | actual stock |
+| `Adjustments` | one row per manual count/correction | actual stock |
+| `OpeningStock` | opening snapshot as of the cutoff | stock valuation |
+| `MigrationReport` | reconciliation rows | audit |
 
-**View sheets (formula-driven, no data entry):**
-
-`Stock`, `DailyWaffles`, `AllTime`, and one per month — all pivoted/filtered from the source sheets. Regenerating them never loses source data.
+**View sheets:** `Stock` is regenerated from source records. `DailyWaffles` and
+`AllTime` exist as tabs with headers only — the daily-waffles and all-time figures
+are computed live by the Summary / Daily Waffles sidebars, never stored as typed
+totals.
 
 ---
 
@@ -268,7 +297,10 @@ Each phase below lists: what it produces, what you review, and the gate that mus
 
 **README:** §14.8, §8, §8.4, §8.5
 
-**Build:** `11_Sales.gs`, `12_Reports.gs`
+**Build:** not built as dedicated report tabs. The figures are served live by
+`11_Summary.gs` (Batches / Bazar / Stock) and `10_POS.gs` (Daily Waffles: sale,
+discount, due, Bazar, cash in hand). `AllTime` / `DailyWaffles` remain header-only
+view tabs.
 
 - All Time and monthly views, all derived, zero typed totals.
 - Closed-day list replaces the weekday rule; no off-by-one correction.
@@ -289,7 +321,8 @@ Each phase below lists: what it produces, what you review, and the gate that mus
 
 **README:** §13.D, §13.C26, §13.G2
 
-**Build:** `13_Adjustments.gs`, `ui/Sidebar_Adjustment.html` + cost reporting
+**Build:** `13_Adjustments.gs`, `ui/Sidebar_ManualStock.html` (manual stock counts).
+Cost per preparation / waffle and the benchmark comparison live in `11_Summary.gs`.
 
 - Cost per preparation batch (exact) and per waffle (via `waffles per batch`).
 - Actual vs benchmark, so rising cost is visible while sales are low.
@@ -309,7 +342,10 @@ Each phase below lists: what it produces, what you review, and the gate that mus
 
 **README:** §14.10, §11, §15
 
-**Build:** `99_Tests.gs` finalised, `docs/SETUP.md`, `UPDATE.md`, `SHEETS.md`, `BACKUP.md`
+**Build:** `99_Tests.gs` active; `docs/SETUP.md`, `MIGRATION.md`, `BAZAR.md`,
+`BATCHES.md`, `STOCK.md`, `SUMMARY.md`, `FINANCE.md`, `CASH_IN_HAND.md` present.
+Still pending: `UPDATE.md`, `SHEETS.md`, `BACKUP.md` and a full README §15
+acceptance pass.
 
 - Full acceptance-criteria pass (README §15) as executable tests.
 - Update path proven: paste new files over old, run update, **no data lost**.
@@ -321,6 +357,32 @@ Each phase below lists: what it produces, what you review, and the gate that mus
 3. Run the test suite — does it pass?
 
 **Gate:** acceptance criteria all green; install reproducible from docs alone; update loses nothing.
+
+---
+
+### Post-plan additions (built at owner's request)
+
+Two modules were added after the phase list was written. They are source ledgers
+with their own sidebars and do not change the Daily Waffles figures.
+
+**Finance — daily discounts and dues.** `12_Finance.gs`, `ui/Sidebar_Discount.html`,
+`ui/Sidebar_Due.html`, `docs/FINANCE.md`.
+
+- One discount per day (saving the same date corrects it).
+- Dues carry a customer and a status; only **Outstanding** dues reduce cash.
+- Customer dropdown reads the `Customers` tab; a new name typed in the form is saved
+  back to it.
+- `Cash in Hand = (Gross Sales − Discount) − outstanding Due − Bazar`, applied once.
+
+**Cash in Hand — daily physical snapshot.** `15_CashInHand.gs`,
+`ui/Sidebar_CashInHand.html`, `docs/CASH_IN_HAND.md`.
+
+- Note counts (1000 … 5) plus bKash, Bank and Cash Counter for the day.
+- `Physical Holding = notes + bKash + Bank + Cash Counter`.
+- `Extra = Physical Holding − System Cash in Hand` (signed: − short, + over).
+- The system figure is taken straight from Daily Waffles, so it can never drift.
+- One row per date; only entered figures and the system snapshot are stored, every
+  total is derived on read.
 
 ---
 
@@ -462,9 +524,12 @@ Still useful but not blocking: D4, D5, D9, D11 need no action.
 
 ### Build environment
 
-Phase 2 is written as code in this repository (`googlescript/`). It is not yet running in a spreadsheet. When you create the blank `Awwffle DEV` sheet and paste the files in, `runSetup()` creates everything. The live sheet stays untouched until Phase 3 is approved.
-
-Phase 2 starts with `02_ItemMaster.gs` and `03_Schema.gs`, because everything else depends on them.
+The system is now running against the live workbook. The code in `googlescript/` is
+pasted into the bound Apps Script project, `runSetup()` has created the source
+sheets, migration has imported the history, and the owner has been entering live
+data (POS snapshots, Bazar, batches, discounts, dues, cash snapshots). New files are
+applied by pasting them over the old ones; `runSetup()` is idempotent and never
+touches existing records.
 
 ---
 
@@ -474,23 +539,28 @@ I will keep this table updated so we both know where we stand.
 
 | phase | built | self-tested | handed to you | your verdict | committed |
 |---|---|---|---|---|---|
-| 2 — data model | yes | 177 tests pass | reviewed and run | **approved** | not yet |
-| 3 — migration | yes | 42/42 checks, 0 attention | reviewed and run | **approved** | not yet |
-| 4 — bazar | yes | 188 tests, 40 Bazar assertions | reviewed and run | **approved** | not yet |
-| 5 — measurements / batches | yes | 238 tests + 59 integration | reviewed and run | **approved** | not yet |
-| 5b — Bazar edit/delete + date order | yes | 296 unit, 260 integration | reviewed and run | **approved** | not yet |
-| 6 — stock | yes | 372 unit, 35 stock + full migration | reviewed and run | **approved** | not yet |
-| 6.5 — summary views + closed days | yes | 372 unit, 59 summary, 12 suites | **awaiting your review** | — | not yet |
-| 6.6 — bazar due/paid + item rate tiles | yes | 399 unit, 20 bazar e2e | **awaiting your review** | — | not yet |
-| 6.7 — summary performance (DEADLINE_EXCEEDED) | yes | 406 unit, byte-identical outputs | **awaiting your review** | — | not yet |
-| 7 — POS | yes | 24 unit tests added, syntax-checked | **awaiting your review** | — | not yet |
-| 8 — reports | — | — | — | — | — |
-| 9 — cost / adjustments | — | — | — | — | — |
-| 10 — hardening | — | — | — | — | — |
+| 2 — data model | yes | suite passes | reviewed and run | **approved** | yes |
+| 3 — migration | yes | 42/42 reconciliation, 0 attention | reviewed and run | **approved** | yes |
+| 4 — bazar | yes | suite passes | reviewed and run | **approved** | yes |
+| 5 — measurements / batches | yes | suite + integration | reviewed and run | **approved** | yes |
+| 5b — Bazar edit/delete + date order | yes | suite + integration | reviewed and run | **approved** | yes |
+| 6 — stock | yes | suite + full migration | reviewed and run | **approved** | yes |
+| 6.5 — summary views + closed days | yes | suite passes | reviewed and run | **approved** | yes |
+| 6.6 — bazar due/paid + item rate tiles | yes | suite passes | reviewed and run | **approved** | yes |
+| 6.7 — summary performance | yes | byte-identical outputs | reviewed and run | **approved** | yes |
+| 7 — POS / Daily Waffles | yes | suite passes | reviewed and run | **approved** | yes |
+| Finance — discounts, dues, customers | yes | suite passes | reviewed and run | **approved** | yes |
+| Cash in Hand (owner request) | yes | `testCashInHand` passes | reviewed and run | **approved** | not yet (working tree) |
+| 8 — All Time / monthly report sheets | not built as sheets; figures served live by Summary / Daily Waffles | — | — | — | — |
+| 9 — cost comparison / manual counts | partial — cost comparison in Summary; manual stock counts in `13_Adjustments.gs` | suite passes | — | — | — |
+| 10 — hardening / docs | partial — SETUP, MIGRATION, BAZAR, BATCHES, STOCK, SUMMARY, FINANCE, CASH_IN_HAND present; UPDATE / SHEETS / BACKUP pending | suite passes | — | — | — |
 
 ---
 
 ## 9. Phase 2 hand-off — review note
+
+*Historical hand-off note from Phase 2, kept for reference. The review log in §8 is
+the current source of truth.*
 
 **Built:** `00_Config.gs`, `01_Utils.gs`, `02_ItemMaster.gs`, `03_Schema.gs`,
 `03b_PosProducts.gs`, `03c_MeasurementsSeed.gs`, `04_Setup.gs`, `14_Menu.gs`,
@@ -547,6 +617,9 @@ live purchases.
 ---
 
 ## 10. Phase 3 hand-off — review note
+
+*Historical hand-off note from Phase 3, kept for reference. The review log in §8 is
+the current source of truth.*
 
 **Built:** `05_Migration.gs`, `05b_MigrationWorkers.gs`, `05c_MigrationPos.gs`,
 `05d_MigrationRest.gs`, `05e_MigrationReport.gs`, `docs/MIGRATION.md`, plus a
