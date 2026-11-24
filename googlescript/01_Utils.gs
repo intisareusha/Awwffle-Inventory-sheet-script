@@ -147,10 +147,27 @@ function toDate_(v) {
     if (iso) {
       d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
     } else {
-      // dd/mm/yyyy or dd-mm-yyyy, which is how the owner writes dates.
-      var dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-      if (dmy) {
-        d = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+      // Slash / dash dates, which can be written either day-first or month-first.
+      // Sheets read back as text use the sheet's display format, and this workbook
+      // stores them as M/D/YYYY ("10/17/2026"). Decide by which number can only be
+      // a day: 17/10 must be day-first, 10/17 must be month-first. When both are
+      // 12 or less the two readings are genuinely ambiguous, so follow the sheet
+      // (month-first) rather than silently shifting the day.
+      var slash = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (slash) {
+        var a = Number(slash[1]);
+        var b = Number(slash[2]);
+        var year = Number(slash[3]);
+        var month, day;
+
+        if (a > 12 && b <= 12) {        // d/m/yyyy
+          day = a; month = b;
+        } else if (b > 12 && a <= 12) { // m/d/yyyy
+          month = a; day = b;
+        } else {                        // ambiguous → m/d/yyyy (sheet format)
+          month = a; day = b;
+        }
+        d = new Date(year, month - 1, day);
       } else {
         d = new Date(s);
       }

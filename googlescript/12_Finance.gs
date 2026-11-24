@@ -76,6 +76,24 @@ function deleteDue(dueId) {
   return deleteDue_(dueId);
 }
 
+/**
+ * Resolves a preset ('all', 'today', 'last7', …) to concrete start/end dates for
+ * the finance sidebars, using the same resolver the Summary tabs use. "All time"
+ * spans the whole system extent (opening date → today), so the picker shows the
+ * real start and end instead of collapsing to today.
+ */
+function resolveFinancePreset(preset, todayStr) {
+  var today = dateKey_(toDate_(todayStr) || toDate_(new Date()));
+
+  if (preset === 'all') {
+    var extent = financeRangeExtent_(readDiscountRows_().concat(readDueRows_()), today);
+    return { start: extent.start, end: extent.end };
+  }
+
+  var range = resolvePreset_(preset, today);
+  return range || { start: today, end: today };
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers — testable without a spreadsheet
 // ---------------------------------------------------------------------------
@@ -149,20 +167,25 @@ function recordDateExtent_(rows) {
 }
 
 /**
- * The business start date, taken from the same sheets the Batches / Bazar / Stock
- * summaries use. "All time" in the finance sidebars starts here (not at today and
- * not at the first discount/due), so every tab reports the same opening date.
+ * The business date extent, taken from the same sheets the Batches / Bazar / Stock
+ * summaries use. "All time" in the finance sidebars is built from this so every
+ * tab reports the same opening date. Read in one pass (these sheets can be large).
  */
-function firstDataDate_(fallbackKey) {
+function businessDateExtent_(fallbackKey) {
   var names = [SHEETS.POS_SNAPSHOTS, SHEETS.BATCHES, SHEETS.BAZAR];
   var earliest = '';
+  var latest = '';
+
   names.forEach(function (name) {
     readRecords_(name).forEach(function (r) {
       var k = dateKey_(r['Date']);
-      if (k && (!earliest || k < earliest)) earliest = k;
+      if (!k) return;
+      if (!earliest || k < earliest) earliest = k;
+      if (!latest || k > latest) latest = k;
     });
   });
-  return earliest || fallbackKey;
+
+  return { start: earliest || fallbackKey, end: latest || '' };
 }
 
 /** Earliest `date` key across already-mapped rows, or ''. */
@@ -175,11 +198,39 @@ function earliestRecordKey_(rows) {
   return first;
 }
 
-/** Business start, pulled earlier if a record predates it (never hide data). */
-function financeRangeStart_(records, today) {
-  var start = firstDataDate_(today);
-  var recStart = earliestRecordKey_(records);
-  return (recStart && recStart < start) ? recStart : start;
+/** Latest `date` key across already-mapped rows, or ''. */
+function latestRecordKey_(rows) {
+  var last = '';
+  (rows || []).forEach(function (r) {
+    var k = String(r.date || '');
+    if (k && (!last || k > last)) last = k;
+  });
+  return last;
+}
+
+/**
+ * The full "All time" extent for the finance sidebars.
+ *
+ * Start is the earliest of the first business-sheet date (the same source the
+ * Bazar summary uses) and the first finance record; end is the latest of today
+ * and the newest record. When the business sheets hold no rows the business
+ * extent falls back to *today*, but an earlier finance record still wins — so
+ * "All time" always begins at the real first day (17 Oct 2026), never today.
+ */
+function financeRangeExtent_(records, today) {
+  var business = businessDateExtent_(today);
+
+  var start = business.start;
+  [earliestRecordKey_(records)].forEach(function (k) {
+    if (k && (!start || k < start)) start = k;
+  });
+
+  var end = today;
+  [business.end, latestRecordKey_(records)].forEach(function (k) {
+    if (k && k > end) end = k;
+  });
+
+  return { start: start || today, end: end || today };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,26 +319,34 @@ function customerNames_() {
   var out = [];
   var seen = {};
 
-  readRecords_(SHEETS.CUSTOMERS).forEach(function (r) {
-    var name = String(r['Customer'] || '').trim();
-    if (!name) return;
-    if (String(r['Active']) === 'FALSE' || String(r['Active']) === 'false') return;
-    var key = normaliseCustomer_(name);
+  function add(name) {
+    var clean = String(name === null || name === undefined ? '' : name).trim();
+    if (!clean) return;
+    var key = normaliseCustomer_(clean);
     if (seen[key]) return;
     seen[key] = true;
-    out.push(name);
-  });
+    out.push(clean);
+  }
+
+  // Read the Customers tab by position (column A = name, column B = Active).
+  // Header-key reads silently return nothing when a header has stray whitespace,
+  // which left the sidebar dropdown empty even though the tab was populated.
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CUSTOMERS);
+  if (sheet) {
+    var lastRow = sheet.getLastRow();
+    var lastCol = sheet.getLastColumn();
+    if (lastRow >= 2 && lastCol >= 1) {
+      sheet.getRange(2, 1, lastRow - 1, lastCol).getValues().forEach(function (row) {
+        var active = String(row.length > 1 ? row[1] : '').trim().toUpperCase();
+        if (active === 'FALSE') return;   // deactivated customers are hidden
+        add(row[0]);
+      });
+    }
+  }
 
   // A due may reference a name that was never written to Customers (e.g. imported),
   // so include those too rather than silently hiding them from the dropdown.
-  readDueRows_().forEach(function (r) {
-    var name = String(r.customer || '').trim();
-    if (!name) return;
-    var key = normaliseCustomer_(name);
-    if (seen[key]) return;
-    seen[key] = true;
-    out.push(name);
-  });
+  readDueRows_().forEach(function (r) { add(r.customer); });
 
   return out;
 }
@@ -348,11 +407,12 @@ function writeFinanceRow_(sheet, rowNumber, record) {
 function getDiscountPanel_() {
   var list = buildDiscountList_('', '');
   var today = dateKey_(new Date());
+  var extent = financeRangeExtent_(list.records, today);
 
   return {
     today: today,
-    dataStart: financeRangeStart_(list.records, today),
-    dataEnd: today,
+    dataStart: extent.start,
+    dataEnd: extent.end,
     records: list.records,
     total: list.total,
     count: list.count
@@ -486,11 +546,12 @@ function deleteDiscount_(discountId) {
 function getDuePanel_() {
   var list = buildDueList_('', '');
   var today = dateKey_(new Date());
+  var extent = financeRangeExtent_(list.records, today);
 
   return {
     today: today,
-    dataStart: financeRangeStart_(list.records, today),
-    dataEnd: today,
+    dataStart: extent.start,
+    dataEnd: extent.end,
     customers: customerNames_(),
     records: list.records,
     totalOutstanding: list.totalOutstanding,

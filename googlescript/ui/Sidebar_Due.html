@@ -105,8 +105,9 @@
     </div>
     <div class="row">
       <label for="customer">Customer</label>
-      <input type="text" id="customer" list="customerList" placeholder="Pick a name or type a new one">
-      <datalist id="customerList"></datalist>
+      <select id="customer"></select>
+      <input type="text" id="newCustomer" style="margin-top:6px;display:none"
+             placeholder="Type the new customer name">
     </div>
     <div class="row">
       <label for="notes">Note (optional)</label>
@@ -178,11 +179,6 @@
     var m = d.getMonth() + 1, day = d.getDate();
     return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
   }
-  function parseKey(s) {
-    var p = String(s).split('-');
-    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
-  }
-
   // Earliest due date the panel already knows about, used as the All-time start
   // when the server did not send a dataStart.
   function earliestRecordDate() {
@@ -194,14 +190,80 @@
     return first;
   }
 
+  // Sentinel option that reveals the "new customer" text field.
+  var NEW_CUSTOMER = '__new__';
+
+  // The dropdown lists the Customers tab (plus any name already used on a due),
+  // so the owner picks instead of retyping. The last option adds a new name.
   function renderCustomers() {
-    var list = $('customerList');
-    list.innerHTML = '';
-    (PANEL && PANEL.customers || []).forEach(function (name) {
+    var sel = $('customer');
+    var previous = sel.value;
+    sel.innerHTML = '';
+
+    var pick = document.createElement('option');
+    pick.value = '';
+    pick.textContent = '(choose a customer)';
+    sel.appendChild(pick);
+
+    // Customers tab names first, then any name already used on a due, so the
+    // list is never empty while data exists.
+    var names = (PANEL && PANEL.customers || []).slice();
+    var seen = {};
+    names.forEach(function (n) { seen[String(n).toLowerCase()] = true; });
+    ((PANEL && PANEL.records) || []).forEach(function (r) {
+      var n = String(r.customer || '').trim();
+      if (n && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = true; names.push(n); }
+    });
+
+    names.forEach(function (name) {
       var o = document.createElement('option');
       o.value = name;
-      list.appendChild(o);
+      o.textContent = name;
+      sel.appendChild(o);
     });
+
+    var add = document.createElement('option');
+    add.value = NEW_CUSTOMER;
+    add.textContent = '+ Add new customer…';
+    sel.appendChild(add);
+
+    if (previous) sel.value = previous;
+    toggleNewCustomer();
+  }
+
+  function toggleNewCustomer() {
+    var adding = $('customer').value === NEW_CUSTOMER;
+    $('newCustomer').style.display = adding ? 'block' : 'none';
+    if (!adding) $('newCustomer').value = '';
+  }
+
+  // The customer to save: the picked name, or the typed new one.
+  function selectedCustomer() {
+    var v = $('customer').value;
+    return v === NEW_CUSTOMER ? $('newCustomer').value.trim() : v;
+  }
+
+  // Select an existing customer (adding it to the list if a due references a
+  // name that is not in Customers yet).
+  function setCustomerField(name) {
+    var sel = $('customer');
+    var wanted = String(name || '').trim();
+
+    if (wanted) {
+      var found = false;
+      Array.prototype.forEach.call(sel.options, function (o) {
+        if (o.value === wanted) found = true;
+      });
+      if (!found) {
+        var o = document.createElement('option');
+        o.value = wanted;
+        o.textContent = wanted;
+        sel.insertBefore(o, sel.lastElementChild);   // before the "+ Add new" option
+      }
+    }
+
+    sel.value = wanted || '';
+    toggleNewCustomer();
   }
 
   function buildPresets() {
@@ -246,37 +308,41 @@
     }
   }
 
+  // Picking a preset resolves the range on the server (the same resolver the
+  // Summary → Bazar tab uses) and immediately runs the search with the shared
+  // spinner. "All time" uses the panel's real start and end.
   function applyPreset(key) {
-    var today = PANEL && PANEL.today ? PANEL.today : keyOf(new Date());
-    var t = parseKey(today);
-    var from = today, to = today;
+    setPresetActive(key);
 
     if (key === 'all') {
-      // All time runs from the business start date (the same opening date the
-      // Batches / Bazar tabs use) up to today.
-      from = (PANEL && PANEL.dataStart) || earliestRecordDate() || today;
-      to = today;
-    } else if (key === 'yesterday') {
-      from = keyOf(new Date(t.getTime() - 86400000));
-      to = from;
-    } else if (key === 'thisMonth') {
-      from = keyOf(new Date(t.getFullYear(), t.getMonth(), 1));
-    } else if (key === 'lastMonth') {
-      from = keyOf(new Date(t.getFullYear(), t.getMonth() - 1, 1));
-      to = keyOf(new Date(t.getFullYear(), t.getMonth(), 0));
-    } else if (key === 'last7') {
-      from = keyOf(new Date(t.getTime() - 6 * 86400000));
-    } else if (key === 'last30') {
-      from = keyOf(new Date(t.getTime() - 29 * 86400000));
+      $('from').value = (PANEL && PANEL.dataStart) || earliestRecordDate() || keyOf(new Date());
+      $('to').value = (PANEL && PANEL.dataEnd) || (PANEL && PANEL.today) || keyOf(new Date());
+      loadList();
+      return;
     }
 
-    // Presets only fill the dates; Show Dues runs the query with the loading state.
-    $('from').value = from;
-    $('to').value = to;
-    setPresetActive(key);
+    setBusy(true);
+    google.script.run
+      .withSuccessHandler(function (r) {
+        if (!r || !r.start) { setBusy(false); return; }
+        $('from').value = r.start;
+        $('to').value = r.end;
+        loadList();
+      })
+      .withFailureHandler(function (err) {
+        setBusy(false);
+        showMsg('Could not work out that date range: ' +
+          (err && err.message ? err.message : err), 'error');
+      })
+      .resolveFinancePreset(key, (PANEL && PANEL.today) || keyOf(new Date()));
   }
 
   function loadList() {
+    // Read the dates before going busy: the busy state disables the controls, and
+    // the query must carry the values the user can see.
+    var start = $('from').value;
+    var end = $('to').value;
+
     setBusy(true);
     google.script.run
       .withSuccessHandler(function (d) {
@@ -289,7 +355,7 @@
         setBusy(false);
         showMsg('Could not load dues: ' + (err && err.message ? err.message : err), 'error');
       })
-      .getDueList($('from').value, $('to').value);
+      .getDueList(start, end);
   }
 
   function renderTiles(d) {
@@ -325,7 +391,10 @@
     var el = $('list');
     var records = d.records || [];
     if (!records.length) {
-      el.innerHTML = '<div class="muted">No dues in this range.</div>';
+      var have = (PANEL && PANEL.records || []).length;
+      el.innerHTML = '<div class="muted">' +
+        (have ? 'No dues in this range.' : 'No dues recorded yet — add one above.') +
+        '</div>';
       return;
     }
     el.innerHTML = records.map(function (r) {
@@ -366,7 +435,7 @@
     EDITING = r;
     $('date').value = r.date;
     $('amount').value = r.amount == null ? '' : r.amount;
-    $('customer').value = r.customer || '';
+    setCustomerField(r.customer);
     $('notes').value = r.notes || '';
     $('formLegend').textContent = 'Editing due from ' + r.date;
     $('save').textContent = 'Update due';
@@ -380,7 +449,7 @@
     $('save').textContent = 'Save due';
     $('cancelEdit').style.display = 'none';
     $('amount').value = '';
-    $('customer').value = '';
+    setCustomerField('');
     $('notes').value = '';
   }
 
@@ -388,7 +457,7 @@
     PANEL = panel;
     renderCustomers();
     $('from').value = panel.dataStart || earliestRecordDate() || panel.today;
-    $('to').value = panel.today;
+    $('to').value = panel.dataEnd || panel.today;
     setPresetActive('all');
   }
 
@@ -396,7 +465,7 @@
     hideMsg();
     var payload = {
       date: $('date').value,
-      customer: $('customer').value,
+      customer: selectedCustomer(),
       amount: $('amount').value,
       notes: $('notes').value
     };
@@ -466,6 +535,7 @@
     $('save').addEventListener('click', save);
     $('cancelEdit').addEventListener('click', stopEdit);
     $('show').addEventListener('click', loadList);
+    $('customer').addEventListener('change', toggleNewCustomer);
     $('from').addEventListener('change', function () { setPresetActive(''); });
     $('to').addEventListener('change', function () { setPresetActive(''); });
 

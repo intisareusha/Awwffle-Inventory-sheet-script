@@ -11,9 +11,15 @@ Everything is editable and filterable by date range (All time and the usual
 shortcuts). Nothing is stored twice.
 
 **All time** starts at the same opening date the Batches / Bazar tabs use and runs
-to today, so every summary reports the same starting day. Press **Show Discounts**
-/ **Show Dues** to run a range query; the pane shows the shared spinner while it
-loads.
+to today, so every summary reports the same starting day. Date presets are
+resolved on the server with the same rules the Summary tabs use: clicking one
+("Today", "Last 7 days", …) fills From / To **and** runs the query, showing the
+shared spinner. **Show Discounts** / **Show Dues** run a query for hand-picked
+dates.
+
+The due form's **Customer** box is a dropdown of the `Customers` tab (plus any
+name already used on a due). Pick a name, or choose **+ Add new customer…** and
+type one — it is saved to `Customers` and appears in the list next time.
 
 Rows typed directly into the `Discounts` / `Dues` tabs are read as well. The
 generated ID column may be left blank — a stable ID is filled in on first read so

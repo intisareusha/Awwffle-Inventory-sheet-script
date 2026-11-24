@@ -307,6 +307,14 @@ function testDateHelpers() {
   eq_(s, 'dateKey from Date', dateKey_(new Date(2026, 9, 17)), '2026-10-17');
   eq_(s, 'dateKey dd/mm/yyyy', dateKey_('17/10/2026'), '2026-10-17');
 
+  // Text dates are read back from Sheets in the sheet's display format, which
+  // here is m/d/yyyy ("10/17/2026"). A day > 12 can only be a day, so the
+  // day-first vs month-first order is decided by which number can be a day.
+  eq_(s, 'dateKey m/d/yyyy', dateKey_('10/17/2026'), '2026-10-17');
+  eq_(s, 'dateKey m/d/yyyy single digit', dateKey_('11/1/2026'), '2026-11-01');
+  eq_(s, 'dateKey m/d/yyyy 22', dateKey_('11/22/2026'), '2026-11-22');
+  eq_(s, 'dateKey dd/mm/yyyy still works', dateKey_('17/10/2026'), '2026-10-17');
+
   // A yyyy-mm-dd string must NOT be parsed as UTC. `new Date('2026-11-18')` is
   // UTC midnight, which is the previous day in any timezone behind UTC — a
   // silent one-day shift on every saved date. Parsing must be explicit.
