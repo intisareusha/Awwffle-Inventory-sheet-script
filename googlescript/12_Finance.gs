@@ -166,28 +166,6 @@ function recordDateExtent_(rows) {
   return { start: first, end: last };
 }
 
-/**
- * The business date extent, taken from the same sheets the Batches / Bazar / Stock
- * summaries use. "All time" in the finance sidebars is built from this so every
- * tab reports the same opening date. Read in one pass (these sheets can be large).
- */
-function businessDateExtent_(fallbackKey) {
-  var names = [SHEETS.POS_SNAPSHOTS, SHEETS.BATCHES, SHEETS.BAZAR];
-  var earliest = '';
-  var latest = '';
-
-  names.forEach(function (name) {
-    readRecords_(name).forEach(function (r) {
-      var k = dateKey_(r['Date']);
-      if (!k) return;
-      if (!earliest || k < earliest) earliest = k;
-      if (!latest || k > latest) latest = k;
-    });
-  });
-
-  return { start: earliest || fallbackKey, end: latest || '' };
-}
-
 /** Earliest `date` key across already-mapped rows, or ''. */
 function earliestRecordKey_(rows) {
   var first = '';
@@ -209,28 +187,25 @@ function latestRecordKey_(rows) {
 }
 
 /**
- * The full "All time" extent for the finance sidebars.
+ * The "All time" extent for the finance sidebars.
  *
- * Start is the earliest of the first business-sheet date (the same source the
- * Bazar summary uses) and the first finance record; end is the latest of today
- * and the newest record. When the business sheets hold no rows the business
- * extent falls back to *today*, but an earlier finance record still wins — so
- * "All time" always begins at the real first day (17 Oct 2026), never today.
+ * Derived from the finance ledgers themselves — the earliest date across
+ * Discounts and Dues through today. It deliberately does NOT depend on POS /
+ * Batches / Bazar: those can be empty (or slow to read), and when they were empty
+ * the old start fell back to *today*, making "All time" a one-day range and every
+ * query return nothing. The first discount (17 Oct 2026) is the real first day.
+ *
+ * Each panel passes both ledgers so both sidebars report the same opening date,
+ * even when one ledger starts later than the other.
  */
 function financeRangeExtent_(records, today) {
-  var business = businessDateExtent_(today);
-
-  var start = business.start;
-  [earliestRecordKey_(records)].forEach(function (k) {
-    if (k && (!start || k < start)) start = k;
-  });
+  var start = earliestRecordKey_(records) || today;
 
   var end = today;
-  [business.end, latestRecordKey_(records)].forEach(function (k) {
-    if (k && k > end) end = k;
-  });
+  var latest = latestRecordKey_(records);
+  if (latest && latest > end) end = latest;
 
-  return { start: start || today, end: end || today };
+  return { start: start, end: end };
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +382,7 @@ function writeFinanceRow_(sheet, rowNumber, record) {
 function getDiscountPanel_() {
   var list = buildDiscountList_('', '');
   var today = dateKey_(new Date());
-  var extent = financeRangeExtent_(list.records, today);
+  var extent = financeRangeExtent_(list.records.concat(readDueRows_()), today);
 
   return {
     today: today,
@@ -546,7 +521,7 @@ function deleteDiscount_(discountId) {
 function getDuePanel_() {
   var list = buildDueList_('', '');
   var today = dateKey_(new Date());
-  var extent = financeRangeExtent_(list.records, today);
+  var extent = financeRangeExtent_(list.records.concat(readDiscountRows_()), today);
 
   return {
     today: today,

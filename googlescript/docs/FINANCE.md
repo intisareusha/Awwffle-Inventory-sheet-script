@@ -10,8 +10,10 @@ Enter them from **Awwffle → Daily entry → Record a discount / Record a due**
 Everything is editable and filterable by date range (All time and the usual
 shortcuts). Nothing is stored twice.
 
-**All time** starts at the same opening date the Batches / Bazar tabs use and runs
-to today, so every summary reports the same starting day. Date presets are
+**All time** starts at the earliest recorded discount/due date (the first business
+day, 17 Oct 2026) and runs to today. Both sidebars use the earliest date across
+Discounts and Dues, so they report the same opening day even though dues start
+later than discounts. Date presets are
 resolved on the server with the same rules the Summary tabs use: clicking one
 ("Today", "Last 7 days", …) fills From / To **and** runs the query, showing the
 shared spinner. **Show Discounts** / **Show Dues** run a query for hand-picked

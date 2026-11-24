@@ -251,8 +251,13 @@
     google.script.run
       .withSuccessHandler(function (d) {
         setBusy(false);
-        renderTiles(d);
-        renderList(d);
+        if (!d) { showMsg('The server returned no answer.', 'error'); return; }
+        try {
+          renderTiles(d);
+          renderList(d);
+        } catch (e) {
+          showMsg('Could not display discounts: ' + e.message, 'error');
+        }
       })
       .withFailureHandler(function (err) {
         setBusy(false);
@@ -277,8 +282,11 @@
     var records = d.records || [];
     if (!records.length) {
       var have = (PANEL && PANEL.records || []).length;
+      var range = d.range && d.range.start
+        ? ' (' + d.range.start + ' → ' + d.range.end + ')' : '';
       el.innerHTML = '<div class="muted">' +
-        (have ? 'No discounts in this range.' : 'No discounts recorded yet — add one above.') +
+        (have ? 'No discounts in this range' + range + '.'
+              : 'No discounts recorded yet — add one above.') +
         '</div>';
       return;
     }

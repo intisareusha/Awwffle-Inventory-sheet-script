@@ -347,13 +347,22 @@
     google.script.run
       .withSuccessHandler(function (d) {
         setBusy(false);
-        renderTiles(d);
-        renderByCustomer(d);
-        renderList(d);
+        if (!d) { showMsg('The server returned no answer.', 'error'); return; }
+        try {
+          renderTiles(d);
+          renderByCustomer(d);
+          renderList(d);
+        } catch (e) {
+          showMsg('Could not display dues: ' + e.message, 'error');
+          $('list').innerHTML = '<div class="muted">Could not display dues: ' +
+            esc(e.message) + '</div>';
+        }
       })
       .withFailureHandler(function (err) {
         setBusy(false);
-        showMsg('Could not load dues: ' + (err && err.message ? err.message : err), 'error');
+        var msg = 'Could not load dues: ' + (err && err.message ? err.message : err);
+        showMsg(msg, 'error');
+        $('list').innerHTML = '<div class="muted">' + esc(msg) + '</div>';
       })
       .getDueList(start, end);
   }
@@ -392,8 +401,11 @@
     var records = d.records || [];
     if (!records.length) {
       var have = (PANEL && PANEL.records || []).length;
+      var range = d.range && d.range.start
+        ? ' (' + d.range.start + ' → ' + d.range.end + ')' : '';
       el.innerHTML = '<div class="muted">' +
-        (have ? 'No dues in this range.' : 'No dues recorded yet — add one above.') +
+        (have ? 'No dues in this range' + range + '.'
+              : 'No dues recorded yet — add one above.') +
         '</div>';
       return;
     }
