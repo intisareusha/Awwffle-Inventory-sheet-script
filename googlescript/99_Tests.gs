@@ -278,6 +278,32 @@ function testItemMasterIntegrity() {
   var badRenames = ITEM_RENAMES.filter(function (r) { return !findItem_(r.to); });
   eq_(s, 'every rename target exists', badRenames.map(function (r) { return r.to; }).join(', '), '');
 
+  // A rename must not leave two rows for one item. This happened for real: the new
+  // name was seeded while the old row still existed, so ItemMaster held both and the
+  // Bazar and Stock dropdowns each listed it twice.
+  var dupPlan = planDuplicateItemRows_([
+    { row: 2,  name: 'Flour' },
+    { row: 19, name: 'Water 500ml' },
+    { row: 44, name: 'Water 500ml' }
+  ], ITEM_RENAMES);
+  eq_(s, 'rename duplicate is removed', dupPlan.remove.map(function (d) { return d.row; }), [44]);
+  eq_(s, 'original row is kept', dupPlan.remove.map(function (d) { return d.keptRow; }), [19]);
+  eq_(s, 'ideal state is a no-op',
+    planDuplicateItemRows_([{ row: 19, name: 'Water 500ml' }], ITEM_RENAMES).remove, []);
+
+  // A duplicate the owner typed must be reported, never deleted automatically.
+  var typedDup = planDuplicateItemRows_([
+    { row: 2, name: 'Flour' }, { row: 9, name: 'Flour' }
+  ], ITEM_RENAMES);
+  eq_(s, 'typed duplicate is not deleted', typedDup.remove, []);
+  eq_(s, 'typed duplicate is reported', typedDup.suspicious.map(function (d) { return d.row; }), [9]);
+
+  // The migration re-run guard must survive a rename, or usage imports twice.
+  eq_(s, 'guard sees pre-rename ID',
+    importedUnderOldName_('Water 500ml', { 'MIGRATED-USE-Water': true }), true);
+  eq_(s, 'guard ignores unrelated ID',
+    importedUnderOldName_('Flour', { 'MIGRATED-USE-Water': true }), false);
+
   // Empty Container must not exist (§3.1, §9).
   eq_(s, 'Empty Container absent', findItem_('Empty Container'), null);
 

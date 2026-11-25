@@ -400,6 +400,26 @@ function migrateOpeningStock_(stockSheet, bazarStats, recon, corrections) {
 // ---------------------------------------------------------------------------
 
 /**
+ * True when this item's usage was already imported before it was renamed.
+ *
+ * `migrateManualUsage_` writes one `Out` row per manual item with the ID
+ * `MIGRATED-USE-<canonical name>`. Renaming an item therefore changes the ID that
+ * WOULD be written, while the row already in the sheet keeps the old one. Without
+ * this check a re-run would look like a first import and double the usage.
+ *
+ * IDs are intentionally left untouched: they are the audit trail of what migration
+ * wrote, and rewriting them would hide the rename from anyone reading the sheet.
+ */
+function importedUnderOldName_(canonical, already) {
+  var nameKey = normaliseItemName_(canonical);
+  return (ITEM_RENAMES || []).some(function (r) {
+    if (!r || !r.from || !r.to) return false;
+    return normaliseItemName_(r.to) === nameKey &&
+           already['MIGRATED-USE-' + r.from] === true;
+  });
+}
+
+/**
  * The source Stock sheet carries a hand-typed `Total Used` for the 26
  * non-recipe-driven items (toppings and packaging), totalling 11,735 BDT of the
  * 48,752.85 real used cost.
@@ -460,8 +480,14 @@ function migrateManualUsage_(stockSheet, bazarStats, recon, corrections) {
     if (used === null || used <= 0) return;
 
     // Re-run protection, keyed on item so a second run cannot double the usage.
+    //
+    // The guard must also recognise a row imported BEFORE the item was renamed.
+    // The ID is built from the canonical name, so after a rename an existing
+    // `MIGRATED-USE-Water` would not match `MIGRATED-USE-Water 500ml` and this run
+    // would import the same usage a second time. The pre-rename IDs are checked
+    // from config, so the guard survives the rename without rewriting any ID.
     reRunGuard[normaliseItemName_(canonical)] = true;
-    if (already['MIGRATED-USE-' + canonical]) {
+    if (already['MIGRATED-USE-' + canonical] || importedUnderOldName_(canonical, already)) {
       skipped++;
       return;
     }

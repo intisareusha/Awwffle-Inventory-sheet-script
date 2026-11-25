@@ -47,6 +47,14 @@ function setupSpreadsheet_() {
   // row.
   var renames = renameItemEverywhere_(ITEM_RENAMES);
 
+  // 3b. Remove duplicate ItemMaster rows a rename can leave behind.
+  //
+  // Must run after the rename (the duplicates share the NEW name) and before
+  // seeding (so seeding sees one row and appends nothing). Without this, an item
+  // renamed while its new name was already seeded keeps two rows, and both the
+  // Bazar and Stock item dropdowns show it twice.
+  var dedupe = cleanupDuplicateItemRows_(ITEM_RENAMES);
+
   // 4. Item master
   ensureItemMasterSheet_(settings, created, skipped, seeded);
 
@@ -109,6 +117,9 @@ function setupSpreadsheet_() {
   if (renames && renames.changed && renames.changed.length) {
     summary += ', ' + renames.changed.length + ' renamed';
   }
+  if (dedupe && dedupe.removed && dedupe.removed.length) {
+    summary += ', ' + dedupe.removed.length + ' duplicate row(s) removed';
+  }
 
   logEvent_('SETUP', 'Setup completed', summary);
   return {
@@ -117,6 +128,8 @@ function setupSpreadsheet_() {
     seeded: seeded,
     regrouped: groupSync && groupSync.changed ? groupSync.changed : [],
     renamed: renames && renames.changed ? renames.changed : [],
+    deduped: dedupe && dedupe.removed ? dedupe.removed : [],
+    duplicateNames: dedupe && dedupe.suspicious ? dedupe.suspicious : [],
     summary: summary
   };
 }
@@ -328,6 +341,98 @@ function ensureCustomersSheet_(created, skipped, seeded) {
 // ---------------------------------------------------------------------------
 // Item master
 // ---------------------------------------------------------------------------
+
+/**
+ * Decides which duplicate ItemMaster rows to remove, without touching the sheet.
+ *
+ * WHY THIS IS NEEDED
+ * A rename can leave two rows for one item. If setup ever ran while the catalogue
+ * already held the new name but the sheet still held the old one, seeding appended
+ * the new name as a separate row; the rename then rewrote the old row to the same
+ * new name. The result is two rows, which shows as a doubled entry in the Bazar and
+ * Stock item dropdowns.
+ *
+ * WHAT IT WILL AND WILL NOT TOUCH
+ * Only duplicates whose name is a RENAME TARGET are removed — that is a duplicate
+ * this system created. Any other duplicate is reported and left alone, because two
+ * rows sharing a name the owner typed is not something to delete automatically.
+ *
+ * The FIRST row is kept: it is the pre-existing row carrying the owner's edits
+ * (rates, thresholds, notes). Seeded rows are always appended at the end.
+ *
+ * Pure, so it can be tested without a spreadsheet.
+ *
+ * @param {Array<{row:number,name:string}>} rows  one entry per ItemMaster data row
+ * @param {Array<{from:string,to:string}>} renames
+ * @return {{remove: Array<{row:number,name:string,keptRow:number}>,
+ *           suspicious: Array<{row:number,name:string,keptRow:number}>}}
+ */
+function planDuplicateItemRows_(rows, renames) {
+  var targets = {};
+  (renames || []).forEach(function (r) {
+    if (r && r.to) targets[normaliseItemName_(r.to)] = true;
+  });
+
+  var firstRowFor = {};
+  var remove = [];
+  var suspicious = [];
+
+  (rows || []).forEach(function (r) {
+    var key = normaliseItemName_(r.name);
+    if (!key) return;
+
+    if (firstRowFor[key] === undefined) {
+      firstRowFor[key] = r.row;
+      return;
+    }
+
+    var dupe = { row: r.row, name: r.name, keptRow: firstRowFor[key] };
+    if (targets[key]) remove.push(dupe);
+    else suspicious.push(dupe);
+  });
+
+  return { remove: remove, suspicious: suspicious };
+}
+
+/**
+ * Removes duplicate ItemMaster rows left behind by a rename.
+ *
+ * Deletes bottom-up so an earlier deletion never shifts a row still to be removed.
+ * Every removal is logged with the row it kept, so the change is auditable.
+ */
+function cleanupDuplicateItemRows_(renames) {
+  var sheet = getSheet_(SHEETS.ITEM_MASTER);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { removed: [], suspicious: [] };
+
+  var headers = getHeaders_(sheet);
+  var nameCol = colIndex_(headers, 'Item Name');
+  if (nameCol < 0) return { removed: [], suspicious: [] };
+
+  var values = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  var rows = [];
+  values.forEach(function (row, i) {
+    var name = String(row[nameCol] === null ? '' : row[nameCol]).trim();
+    if (name) rows.push({ row: i + 2, name: name });
+  });
+
+  var plan = planDuplicateItemRows_(rows, renames);
+
+  plan.remove.slice().sort(function (a, b) { return b.row - a.row; })
+    .forEach(function (d) {
+      sheet.deleteRow(d.row);
+      logEvent_('ITEMDEDUPE', 'Duplicate item row removed',
+        d.name + ': deleted row ' + d.row + ', kept row ' + d.keptRow);
+    });
+
+  plan.suspicious.forEach(function (d) {
+    logEvent_('ITEMDEDUPE', 'Duplicate item name left alone',
+      d.name + ': rows ' + d.keptRow + ' and ' + d.row + ' share a name that is ' +
+      'not a rename target');
+  });
+
+  return { removed: plan.remove, suspicious: plan.suspicious };
+}
 
 /**
  * Renames an item everywhere it is stored, in place.

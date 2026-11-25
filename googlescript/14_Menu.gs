@@ -42,6 +42,7 @@ function installMenu_() {
   // One-off maintenance. Idempotent, so leaving it here is harmless and lets the
   // owner re-apply a regroup after pasting updated files.
   menu.addItem('Apply item groups', 'menuApplyItemGroups');
+  menu.addItem('Repair duplicate items', 'menuRepairDuplicateItems');
   menu.addSeparator();
 
   // Later phases add their entries here. Items are added as each phase lands so
@@ -221,4 +222,78 @@ function menuApplyItemGroups() {
   }
 
   ui.alert('Apply item groups', lines.join('\n'), ui.ButtonSet.OK);
+}
+
+/**
+ * Removes duplicate ItemMaster rows left behind by a rename.
+ *
+ * Shown as its own action because the duplicate is visible immediately in the Bazar
+ * and Stock item dropdowns, and the owner should be able to clear it without
+ * thinking about what else a full setup run does.
+ */
+function menuRepairDuplicateItems() {
+  var ui = SpreadsheetApp.getUi();
+
+  // Report before deleting, so the owner sees exactly what will go.
+  var preview = cleanupDuplicateItemRowsPreview_();
+
+  if (!preview.remove.length && !preview.suspicious.length) {
+    ui.alert('Repair duplicate items',
+      'No duplicate item rows found. Nothing to do.', ui.ButtonSet.OK);
+    return;
+  }
+
+  var lines = [];
+  if (preview.remove.length) {
+    lines.push(preview.remove.length + ' duplicate row(s) to remove:', '');
+    preview.remove.forEach(function (d) {
+      lines.push('  ' + d.name + ' — row ' + d.row + ' (keeping row ' + d.keptRow + ')');
+    });
+    lines.push('', 'The kept row is the original one, with your rates and settings.',
+      'No purchase, count or sales history is touched.', '');
+  }
+  if (preview.suspicious.length) {
+    lines.push('Left alone — same name but not a rename duplicate:', '');
+    preview.suspicious.forEach(function (d) {
+      lines.push('  ' + d.name + ' — rows ' + d.keptRow + ' and ' + d.row);
+    });
+    lines.push('');
+  }
+  lines.push('Continue?');
+
+  var answer = ui.alert('Repair duplicate items', lines.join('\n'), ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) return;
+
+  var res = cleanupDuplicateItemRows_(ITEM_RENAMES);
+
+  var msg = res.removed.length
+    ? res.removed.length + ' duplicate row(s) removed.'
+    : 'Nothing removed.';
+
+  try { refreshStockSheet_(); } catch (e) {
+    msg += '\n\nThe Stock view could not be refreshed: ' +
+      (e && e.message ? e.message : String(e));
+  }
+
+  ui.alert('Repair duplicate items', msg, ui.ButtonSet.OK);
+}
+
+/** Dry run of cleanupDuplicateItemRows_, so a menu action can show it first. */
+function cleanupDuplicateItemRowsPreview_() {
+  var sheet = getSheet_(SHEETS.ITEM_MASTER);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { remove: [], suspicious: [] };
+
+  var headers = getHeaders_(sheet);
+  var nameCol = colIndex_(headers, 'Item Name');
+  if (nameCol < 0) return { remove: [], suspicious: [] };
+
+  var values = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  var rows = [];
+  values.forEach(function (row, i) {
+    var name = String(row[nameCol] === null ? '' : row[nameCol]).trim();
+    if (name) rows.push({ row: i + 2, name: name });
+  });
+
+  return planDuplicateItemRows_(rows, ITEM_RENAMES);
 }
