@@ -21,6 +21,25 @@ Extra               = Physical Holding − System Cash in Hand
 The system figure is taken from `getDailyWaffles_` with no range, so it is exactly
 the number the **Daily Waffles** tab shows. Nothing here re-implements that formula.
 
+## Opening the form
+
+The form opens on **today's date filled with your latest saved holding** — the
+same figures you would get by picking the most recent day — so you do not
+re-count notes every day. Adjust whatever changed and save; that writes a **new
+row for today** and leaves every earlier row exactly as it was.
+
+A note above the boxes says which day the starting figures came from.
+
+Two other cases:
+
+- **Pick a date that already has a row** → that row loads with its own figures
+  and its own note, and saving corrects it in place.
+- **Pick a gap date with no row** → you start from the newest holding on or
+  before that date, and saving adds a row for it.
+
+The note box is never carried forward: a note describes the day it was written
+on, so a new day starts with an empty note.
+
 ## The sheet
 
 `CashInHand` holds one row per date (saving the same date corrects it):

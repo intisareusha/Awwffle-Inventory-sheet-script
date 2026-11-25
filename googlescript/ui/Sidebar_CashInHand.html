@@ -85,6 +85,8 @@
       <input type="date" id="date">
     </div>
 
+    <div id="carriedNote" class="muted" style="margin:-3px 0 9px; display:none"></div>
+
     <div class="section-title" style="margin-top:0">Notes at home</div>
     <div class="counts" id="counts">
       <div class="c"><label for="n1000">×1000</label><input type="number" min="0" step="1" id="n1000"></div>
@@ -195,6 +197,18 @@
     $('tExtra').className = 'v ' + (extra < 0 ? 'neg' : (extra > 0 ? 'pos' : ''));
   }
 
+  function setCarriedNote(carriedFrom) {
+    var el = $('carriedNote');
+    if (carriedFrom) {
+      el.textContent = 'Starting from your latest holding (' + carriedFrom + '). ' +
+        'Adjust anything and save — this creates a new row for ' + $('date').value + '.';
+      el.style.display = 'block';
+    } else {
+      el.textContent = '';
+      el.style.display = 'none';
+    }
+  }
+
   function applyPanel(p) {
     if (!p) return;
     STATE.today = p.today;
@@ -211,8 +225,11 @@
     $('bkash').value = r && r.bkash != null ? r.bkash : '';
     $('bank').value = r && r.bank != null ? r.bank : '';
     $('counter').value = r && r.counter != null ? r.counter : '';
+    // The server already blanks the note on a carried-forward record, so it is
+    // only ever the note written for this date.
     $('notes').value = r ? (r.notes || '') : '';
 
+    setCarriedNote(p.carriedFrom);
     renderTotals();
   }
 

@@ -102,7 +102,10 @@ function isClosedDay_(date) {
  *   - one record per date (a second save updates the first)
  *   - fractional values allowed
  *   - negative values rejected
- *   - at least one preparation must be non-zero, otherwise the row is pointless
+ *   - an all-zero row is allowed: "we made nothing that day" is a fact the owner
+ *     wants on the record, and it consumes no ingredients
+ *   - a fully blank form is still rejected, so a stray Save on today's date
+ *     cannot silently record a no-production day; the owner types 0 to mean it
  *   - a closed day is allowed but flagged, because batches have genuinely happened
  *     on closed days in the source data (§17.1)
  */
@@ -194,7 +197,7 @@ function validateBatch_(payload, isClosed) {
   var raw = payload.values || {};
   var values = {};
   var total = 0;
-  var anyPositive = false;
+  var anyProvided = false;
 
   PREPARATIONS.forEach(function (prep) {
     var v = raw[prep];
@@ -211,6 +214,10 @@ function validateBatch_(payload, isClosed) {
       return;
     }
 
+    // A typed value, including 0, is a deliberate statement about that day.
+    // It is what separates "we made none" from "I have not filled this in yet".
+    anyProvided = true;
+
     var n = toNumber_(v);
     if (n === null) {
       errors.push(prep + ' must be a number.');
@@ -224,11 +231,14 @@ function validateBatch_(payload, isClosed) {
 
     values[prep] = n;
     total += n;
-    if (n > 0) anyPositive = true;
   });
 
-  if (!anyPositive && errors.length === 0) {
-    errors.push('Enter at least one preparation. A batch with no quantities records nothing.');
+  // An all-zero day is recorded, not refused: the owner needs the date to show
+  // that no batch came. It adds 0 to every total, so it changes no consumption.
+  // A completely empty form is still rejected so a stray Save cannot silently
+  // record a day that was never considered.
+  if (!anyProvided && errors.length === 0) {
+    errors.push('Enter 0 in at least one preparation to record a day with no batches.');
   }
 
   // A batch on a closed day is legitimate — the source has Wednesday batches — but

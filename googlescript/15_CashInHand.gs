@@ -80,6 +80,23 @@ function cashCountsArray_(countsObj) {
   });
 }
 
+/**
+ * The most recently dated holding, or null when nothing is saved.
+ *
+ * Pure. Date keys are zero-padded yyyy-mm-dd, so comparing them as strings is the
+ * same as comparing them as dates — no parsing and no timezone in the comparison.
+ * The owner opens the form to "what I have right now", which is the latest row,
+ * not necessarily yesterday's.
+ */
+function latestCashRow_(rows) {
+  var latest = null;
+  (rows || []).forEach(function (r) {
+    if (!r || !r.date) return;
+    if (!latest || r.date > latest.date) latest = r;
+  });
+  return latest;
+}
+
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------
@@ -114,28 +131,53 @@ function systemCashInHand_() {
   };
 }
 
+/**
+ * The form's opening state.
+ *
+ * The date is always the one being recorded (today when none is asked for), but
+ * the figures are the newest holding on or before it. So opening the form shows
+ * what the owner has right now, ready to adjust; saving writes a NEW row for the
+ * chosen day and leaves every earlier row untouched. Picking a past date with a
+ * saved row shows that row so it can be corrected in place.
+ *
+ * A carried-forward record deliberately has NO cashId: it is a starting point,
+ * not an existing row, and must never update the day it was copied from.
+ */
 function getCashInHandPanel_(date) {
   var today = dateKey_(new Date());
   var key = dateKey_(date) || today;
 
+  var rows = readCashRows_();
   var existing = null;
-  readCashRows_().forEach(function (r) {
+  rows.forEach(function (r) {
     if (r.date === key) existing = r;   // last wins; one row per date is enforced on save
   });
+
+  var source = existing || latestCashRow_(rows.filter(function (r) {
+    return r.date && r.date <= key;
+  }));
+
+  var record = null;
+  if (source) {
+    record = {
+      cashId: existing ? existing.cashId : '',
+      date: existing ? existing.date : '',
+      counts: source.counts,
+      bkash: source.bkash,
+      bank: source.bank,
+      counter: source.counter,
+      // A note describes the day it was written on, so a carried-forward record
+      // starts with an empty note rather than repeating the earlier day's.
+      notes: existing ? existing.notes : ''
+    };
+  }
 
   return {
     today: today,
     date: key,
     system: systemCashInHand_(),
-    record: existing ? {
-      cashId: existing.cashId,
-      date: existing.date,
-      counts: existing.counts,
-      bkash: existing.bkash,
-      bank: existing.bank,
-      counter: existing.counter,
-      notes: existing.notes
-    } : null
+    record: record,
+    carriedFrom: source && !existing ? source.date : ''
   };
 }
 

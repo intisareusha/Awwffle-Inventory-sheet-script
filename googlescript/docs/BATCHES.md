@@ -37,8 +37,14 @@ source workbook, which stored `0.0` in those cells.
 > ingredient is not used in that preparation" and stays blank. A batch of `0` and
 > a recipe blank are different things.
 
-An all-zero batch is still refused, because a day with nothing made records
-nothing.
+**A day with no production is recorded, not refused.** Enter `0` in each box —
+or in just one — and save. The row is written with all five numbers as `0`, so
+the date exists in the history and it is visible that no batch came that day. It
+adds `0` to every total, so it changes no usage, cost, or estimate.
+
+The one thing still refused is a **completely empty form**: nothing typed at all.
+That is what a stray click on **Save** looks like, and it would quietly claim a
+no-production day you never considered. Typing `0` is how you say it on purpose.
 
 ---
 

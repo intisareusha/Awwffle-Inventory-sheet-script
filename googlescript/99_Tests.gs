@@ -867,10 +867,20 @@ function testBatchValidation() {
   eq_(s, 'explicit zero stored as 0', zero.values['Batter'], 0);
   eq_(s, 'zero plus real value sums correctly', zero.total, 1);
 
-  eq_(s, 'empty batch rejected',
+  eq_(s, 'empty form rejected',
     validateBatch_({ date: '2026-11-17', values: { 'Batter': '', 'Cream': '' } }).ok, false);
-  eq_(s, 'all-zero batch rejected',
-    validateBatch_({ date: '2026-11-17', values: { 'Batter': 0 } }).ok, false);
+
+  // A day with no production is a recorded fact, not an error: the owner needs the
+  // date to exist so it is visible that no batch came. It adds 0 to every total.
+  var allZero = validateBatch_({
+    date: '2026-11-17',
+    values: { 'Batter': 0, 'Nutella Mix': 0, 'Cream': 0, 'White Mix': 0, 'Cheese': 0 }
+  });
+  eq_(s, 'all-zero batch accepted', allZero.ok, true);
+  eq_(s, 'all-zero total is 0', allZero.total, 0);
+  eq_(s, 'all-zero stores zeros not blanks', allZero.values['Cheese'], 0);
+  eq_(s, 'single typed zero accepted',
+    validateBatch_({ date: '2026-11-17', values: { 'Batter': 0 } }).ok, true);
   eq_(s, 'negative rejected',
     validateBatch_({ date: '2026-11-17', values: { 'Batter': -1 } }).ok, false);
   eq_(s, 'non-numeric rejected',
@@ -1918,6 +1928,19 @@ function testCashInHand() {
   var arr = cashCountsArray_({ 1000: 2, 500: 1, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 3 });
   eq_(s, 'counts keyed to array', JSON.stringify(arr), JSON.stringify([2, 1, 0, 0, 0, 0, 0, 3]));
   eq_(s, 'keyed notes total', notesTotal_(arr), 2 * 1000 + 500 + 3 * 5);
+
+  // The form opens on the newest holding so the owner can adjust and save,
+  // without re-counting notes every day. History is never rewritten.
+  eq_(s, 'latest of no rows is null', latestCashRow_([]), null);
+  var unsorted = [
+    { date: '2026-11-04', notes: 'a' },
+    { date: '2026-11-18', notes: 'b' },
+    { date: '2026-11-11', notes: 'c' }
+  ];
+  eq_(s, 'latest row by date', latestCashRow_(unsorted).notes, 'b');
+  eq_(s, 'dateless rows ignored',
+    latestCashRow_([{ date: '' }, { date: '2026-11-18' }]).date, '2026-11-18');
+  eq_(s, 'singleton row is latest', latestCashRow_([{ date: '2026-11-18' }]).date, '2026-11-18');
 
   // Schema + setup wiring.
   eq_(s, 'CashInHand sheet named', SHEETS.CASH_IN_HAND, 'CashInHand');
