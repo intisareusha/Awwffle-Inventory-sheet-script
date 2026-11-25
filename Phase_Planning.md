@@ -554,7 +554,9 @@ I will keep this table updated so we both know where we stand.
 | 8 — All Time / monthly report sheets | not built as sheets; figures served live by Summary / Daily Waffles | — | — | — | — |
 | 9 — cost comparison / manual counts | partial — cost comparison in Summary; manual stock counts in `13_Adjustments.gs` | suite passes | — | — | — |
 | 9a — regroup: Packaging / Equipments / Resale | yes — `02_ItemMaster.gs`, `00_Config.gs`, `13_Adjustments.gs`, `04_Setup.gs` (`applyItemGroups_`), `14_Menu.gs`, UI order, tests, docs | logic verified against HEAD; syntax checked | reviewed and run | **approved** | not yet (working tree) |
-| 9b — Water renamed to `Water 500ml` everywhere | yes — `ITEM_RENAMES` + `renameItemEverywhere_` run by setup before seeding; catalogue, POS `stockItem`, tests, docs | rename-order hazard simulated; syntax checked | awaiting your review | — | not yet (working tree) |
+| 9b — Water renamed to `Water 500ml` everywhere | yes — `ITEM_RENAMES` + `renameItemEverywhere_` run by setup before seeding; catalogue, POS `stockItem`, tests, docs | rename-order hazard simulated; syntax checked | reviewed and run | **approved** | not yet (working tree) |
+| 9c — duplicate ItemMaster rows removed | yes — `planDuplicateItemRows_`, `cleanupDuplicateItemRows_`, `Awwffle → Repair duplicate items`; item-name column now read from `ITEM_NAME_COLUMNS` (`ItemMaster` uses `Item Name`) | 18 checks incl. the live two-Water state | reviewed and run | **approved** | not yet (working tree) |
+| 9d — Food Cost tab (sidebar) | yes — `summaryFoodCost_` in `11_Summary.gs`; `Food Cost` tab in `Sidebar_Summary.html`; `PACKAGING_RULES`, `standardPackCost_`, `blendPackCost_`, `stockSnapshotAt_` | `testFoodCostPackaging` 17/17; 2 stock valuations per view | awaiting your review | — | not yet (working tree) |
 | 10 — hardening / docs | partial — SETUP, MIGRATION, BAZAR, BATCHES, STOCK, SUMMARY, FINANCE, CASH_IN_HAND present; UPDATE / SHEETS / BACKUP pending | suite passes | — | — | — |
 
 ---

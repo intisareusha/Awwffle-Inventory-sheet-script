@@ -103,6 +103,7 @@
     <button type="button" class="tab active" data-tab="batches">Batches</button>
     <button type="button" class="tab" data-tab="bazar">Bazar</button>
     <button type="button" class="tab" data-tab="stock">Stock</button>
+    <button type="button" class="tab" data-tab="food">Food Cost</button>
   </div>
 
   <!-- ================= BATCHES ================= -->
@@ -169,10 +170,25 @@
     <div id="stockOut" style="margin-top:10px"></div>
   </div>
 
+  <!-- ================= FOOD COST ================= -->
+  <div id="pane-food" class="hidden">
+    <div class="chips" id="foodPresets"></div>
+    <div class="grid2 row">
+      <div><label>From</label><input type="date" id="foodFrom"></div>
+      <div><label>To</label><input type="date" id="foodTo"></div>
+    </div>
+    <div class="muted" style="margin-bottom:9px">
+      Toppings and packaging are only measured between two physical counts.
+      Without counts at both ends they show "not measured", never a low figure.
+    </div>
+    <button type="button" class="primary" id="foodRun" style="width:100%">Show food cost</button>
+    <div id="foodOut" style="margin-top:10px"></div>
+  </div>
+
 <script>
   var OPTIONS = null;
   var currentTab = 'batches';
-  var activePreset = { batch: 'all', bazar: 'all' };
+  var activePreset = { batch: 'all', bazar: 'all', food: 'all' };
   var COST_METRIC = 'avg';   // 'avg' = avg cost per batch, 'perDay' = cost / open day
 
   function $(id) { return document.getElementById(id); }
@@ -211,7 +227,7 @@
 
   // ---- Bootstrap ----
   try {
-    ['batch', 'bazar', 'stock'].forEach(function (t) {
+    ['batch', 'bazar', 'stock', 'food'].forEach(function (t) {
       $(t + 'Run').addEventListener('click', function () { runTab(t); });
     });
 
@@ -221,7 +237,7 @@
         Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
           b.className = 'tab' + (b === btn ? ' active' : '');
         });
-        ['batches', 'bazar', 'stock'].forEach(function (p) {
+        ['batches', 'bazar', 'stock', 'food'].forEach(function (p) {
           $('pane-' + p).className = (p === currentTab) ? '' : 'hidden';
         });
       });
@@ -242,6 +258,8 @@
     $('bazarItem').addEventListener('change', function () { runTab('bazar'); });
     $('bazarStatus').addEventListener('change', function () { runTab('bazar'); });
     $('bazarInvoice').addEventListener('change', function () { runTab('bazar'); });
+    $('foodFrom').addEventListener('change', function () { clearPreset('food'); runTab('food'); });
+    $('foodTo').addEventListener('change', function () { clearPreset('food'); runTab('food'); });
 
     google.script.run
       .withSuccessHandler(function (opts) {
@@ -260,7 +278,7 @@
   function initOptions() {
     // Preset chips
     var presets = OPTIONS.presets || [];
-    [['batchPresets', 'batch'], ['bazarPresets', 'bazar']].forEach(function (pair) {
+    [['batchPresets', 'batch'], ['bazarPresets', 'bazar'], ['foodPresets', 'food']].forEach(function (pair) {
       var box = $(pair[0]);
       box.innerHTML = '';
       presets.forEach(function (p) {
@@ -280,6 +298,8 @@
     $('batchTo').value = OPTIONS.dataEnd || OPTIONS.today;
     $('bazarFrom').value = OPTIONS.dataStart || OPTIONS.today;
     $('bazarTo').value = OPTIONS.dataEnd || OPTIONS.today;
+    $('foodFrom').value = OPTIONS.dataStart || OPTIONS.today;
+    $('foodTo').value = OPTIONS.dataEnd || OPTIONS.today;
     $('stockAsOf').value = OPTIONS.today;
 
     // Preparation filter: '(all)' then each recipe in its fixed order.
@@ -531,6 +551,11 @@
             invoice: $('bazarInvoice').value
           });
       }, renderBazar, 'bazar');
+    } else if (which === 'food') {
+      loadSummary('food', 'foodOut', function (ok, bad) {
+        google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+          .summaryFoodCost($('foodFrom').value, $('foodTo').value);
+      }, renderFoodCost, 'food cost');
     } else {
       loadSummary('stock', 'stockOut', function (ok, bad) {
         google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
@@ -969,6 +994,122 @@
   function tintedTile(k, v, cls) {
     return '<div class="tile' + (cls ? ' ' + cls : '') + '"><div class="k">' + esc(k) + '</div>' +
       '<div class="v">' + esc(v) + '</div></div>';
+  }
+
+  // ---------- Food cost ----------
+  /*
+   * Every line is labelled with how solid it is: exact, rule, estimate, or period.
+   * A missing estimate prints "not measured" with the count dates found, never a
+   * zero or a low figure — a wrong number here would be read as real cost.
+   */
+  function natureTag(nature) {
+    var label = { exact: 'exact', rule: 'rule', estimate: 'estimate', period: 'period' }[nature] || nature;
+    return '<span class="muted">(' + esc(label) + ')</span>';
+  }
+
+  function measuredCell(value, measured, fromCount, toCount, decimals) {
+    if (!measured) {
+      var known = (fromCount || toCount)
+        ? ' counts: ' + esc(fromCount || '—') + ' → ' + esc(toCount || '—')
+        : ' no counts';
+      return '<td class="n muted">not measured' + known + '</td>';
+    }
+    return '<td class="n">' + money(value) + '</td>';
+  }
+
+  function renderFoodCost(d) {
+    var out = '';
+
+    // ---- The headline: two blended per-waffle totals ----------------------
+    var tiles = '<div class="tiles">' +
+      '<div class="tile money wide"><div class="k">A — standard pack / waffle</div>' +
+        '<div class="v">' + esc(moneyV(d.totalA)) + '</div></div>' +
+      '<div class="tile money wide"><div class="k">B — actual pack / waffle</div>' +
+        '<div class="v">' + esc(moneyV(d.totalB)) + '</div></div>' +
+      '</div>';
+
+    if (d.gapBminusA !== '' && d.gapBminusA !== 0) {
+      var over = d.gapBminusA > 0;
+      tiles += '<div class="msg ' + (over ? 'error' : 'ok') + '" style="display:block">' +
+        'B is ' + esc(moneyV(Math.abs(d.gapBminusA))) + ' ' +
+        (over ? 'above' : 'below') + ' A per waffle. Both totals use the same recipe ' +
+        'and topping cost, so this gap is packaging method and waste alone.' +
+        '</div>';
+    }
+
+    // ---- Volumes ----------------------------------------------------------
+    tiles += '<div class="tiles">' +
+      tile('Waffles sold', num(d.wafflesSold)) +
+      tile('Waffles produced', d.wafflesProduced === '' ? '—' : num(d.wafflesProduced)) +
+      '</div>';
+
+    out += tiles;
+
+    // ---- Cost by line -----------------------------------------------------
+    var rows = '';
+
+    rows += '<tr><td>Recipe cost</td><td class="n">' + money(d.recipeCost) + '</td>' +
+      '<td class="n">' + money(d.recipePerWaffle) + '</td>' +
+      '<td>' + natureTag('exact') + ' per waffle produced</td></tr>';
+
+    rows += '<tr><td>Toppings</td>' +
+      measuredCell(d.toppingCost, d.toppingMeasured, d.toppingFromCount, d.toppingToCount) +
+      '<td class="n">' + (d.toppingPerWaffle === '' ? '—' : money(d.toppingPerWaffle)) + '</td>' +
+      '<td>' + natureTag('estimate') + ' between counts, per waffle sold</td></tr>';
+
+    rows += '<tr><td>Packaging — standard</td><td class="n muted">rule</td>' +
+      '<td class="n">' + money(d.packagingStandardPerWaffle) + '</td>' +
+      '<td>' + natureTag('rule') + ' 1 stick, 0.5 bento walk-in, box+tray delivery</td></tr>';
+
+    rows += '<tr><td>Packaging — actual</td>' +
+      measuredCell(d.packagingActualCost, d.packagingMeasured,
+        d.packagingFromCount, d.packagingToCount) +
+      '<td class="n">' + (d.packagingActualPerWaffle === '' ? '—' : money(d.packagingActualPerWaffle)) + '</td>' +
+      '<td>' + natureTag('estimate') + ' excludes tissue</td></tr>';
+
+    rows += '<tr><td>Tissue</td>' +
+      measuredCell(d.tissueCost, d.tissueMeasured, '', '') +
+      '<td class="n muted">period</td>' +
+      '<td>' + natureTag('period') + ' not per waffle</td></tr>';
+
+    rows += '<tr><td>Equipments</td>' +
+      measuredCell(d.equipmentCost, d.equipmentMeasured, '', '') +
+      '<td class="n muted">period</td>' +
+      '<td>' + natureTag('period') + ' not per waffle</td></tr>';
+
+    out += '<div class="section-title">Cost by line</div>' +
+      '<div class="tbl-wrap"><table><thead><tr><th>Line</th>' +
+      '<th class="n">Range cost</th><th class="n">Per waffle</th><th>Basis</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+    // ---- Delivery mix, so the standard pack is auditable ------------------
+    var mix = '<div class="section-title">Delivery mix</div>';
+    if (d.deliveryShare === '') {
+      mix += '<div class="muted">Not derivable — this needs a physical count of ' +
+        'Waffle Box at both ends of the range.</div>';
+    } else {
+      mix += '<div class="tiles">' +
+        tile('Delivery share', (d.deliveryShare * 100).toFixed(1) + '%') +
+        tile('Boxes used', qty(d.boxesUsed)) +
+        '</div>' +
+        '<div class="muted">Back-solved from Waffle Box usage ÷ waffles sold, ' +
+        'because the POS cannot tell a walk-in from a delivery.</div>';
+      if (d.deliveryShareClamped) {
+        mix += '<div class="msg error" style="display:block">The box count and the ' +
+          'sales count disagree (share outside 0–100%), so the standard figure was ' +
+          'clamped. Check the Waffle Box counts or the POS snapshot.</div>';
+      }
+    }
+    out += mix;
+
+    // ---- The standing caveats --------------------------------------------
+    out += '<div class="section-title">What this figure includes</div>' +
+      '<div class="muted">' + esc(d.exclusionNote) + '<br>' +
+      'Ice cream usage is inside Toppings, so topping cost is slightly overstated ' +
+      'when ice cream sells standalone. Tissue is excluded from both totals, so ' +
+      'actual packaging is slightly understated by the tissue amount.</div>';
+
+    $('foodOut').innerHTML = out;
   }
 </script>
 </body>

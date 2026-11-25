@@ -8,17 +8,18 @@ the sheet.
 
 ---
 
-## Three tabs, two kinds of question
+## Four tabs, two kinds of question
 
 | Tab | Question it answers | Control |
 |---|---|---|
 | Batches | "How much did I make between two dates?" | From / To |
 | Bazar | "How much did I spend between two dates?" | From / To |
 | Stock | "What do I have, and what is it worth **on a date**?" | As of |
+| Food Cost | "What does one waffle actually cost me?" | From / To |
 
 **Stock is a snapshot, not a range.** "Stock between 1 and 15 Nov" is not a
 meaningful question — stock is a position at a moment. So the Stock tab takes one
-date. Batches and Bazar genuinely accumulate, so they take a range.
+date. Batches, Bazar and Food Cost genuinely accumulate, so they take a range.
 
 ### Date shortcuts
 
@@ -156,6 +157,61 @@ cost" is now a single figure rather than something to work out by hand.
 | Negative only | items with negative stock |
 
 Changing a filter re-runs immediately — no separate Apply button.
+
+---
+
+## Food Cost tab
+
+**Awwffle → Summary → Batches / Bazar / Stock… → Food Cost**
+
+Answers "what does one waffle actually cost me?" over a date range. Every line is
+labelled with how solid it is, because mixing an exact figure with an estimate
+without saying which is which is how people make decisions on the wrong number.
+
+| Line | Nature | How it is derived |
+|---|---|---|
+| Recipe cost | **exact** | Batches × Measurements, at weighted-average cost, per waffle **produced** |
+| Toppings | **estimate** | Toppings stock used between two physical counts, per waffle **sold** |
+| Packaging — standard | **rule** | Per-waffle rules × average cost, blended by the delivery mix |
+| Packaging — actual | **estimate** | Packaging stock used between two counts, per waffle sold |
+| Tissue | **period** | Used cost over the range — not per waffle |
+| Equipments | **period** | Used cost over the range — not per waffle |
+
+### The two per-waffle totals
+
+- **A — standard pack**: recipe + toppings + standard packaging
+- **B — actual pack**: recipe + toppings + actual packaging
+
+Both exclude tissue and equipment, so the gap between them is packaging method and
+waste only — not a mix of different accounting.
+
+### Why estimates can say "not measured"
+
+A physical count is a *set-to* statement, not a usage delta. Usage is only
+recognised when a **later** count exists. So toppings and packaging read
+"not measured" (with the count dates found) unless the range is bracketed by counts
+at both ends. That is deliberate: a range without counts would otherwise show
+purchases without consumption and read far too low.
+
+**Count toppings and packaging monthly** to keep these lines live.
+
+### The delivery mix
+
+The POS cannot tell a walk-in customer from a delivery order, so the delivery share
+is **back-solved** from Waffle Box usage ÷ waffles sold. If the box count and the
+sales count disagree the share falls outside 0–100%, the standard figure is clamped,
+and the tab says so — it never silently hides a mismatch.
+
+**Packaging rules (owner-set):** 1 stick per waffle; walk-in uses ½ bento (two sides
+per box, one waffle per side); delivery uses 1 box + 1 tray; 5 gm poly bag per
+waffle. One Time box stays in Equipments because it is a staff item.
+
+### Known over/understatement, stated on the tab
+
+- Ice cream is inside Toppings, so topping cost is slightly **overstated** when ice
+  cream sells standalone.
+- Tissue is excluded from both totals, so actual packaging is slightly
+  **understated** by the tissue amount.
 
 ---
 

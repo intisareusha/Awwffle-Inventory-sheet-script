@@ -50,6 +50,7 @@ function runAllTests() {
     testPosExportParsing,
     testPosInvoiceDerivation,
     testManualCounts,
+    testFoodCostPackaging,
     testFinance,
     testCashInHand
   ];
@@ -88,13 +89,59 @@ function newSuite_() {
   return { passed: 0, failures: [] };
 }
 
+/**
+ * Value equality for assertions.
+ *
+ * `===` compares arrays and objects by reference, so two equal arrays fail and the
+ * message prints the same text twice ("expected 44, got 44"), which reads like a
+ * contradiction. Numbers are rounded first so floating point does not fail an
+ * assertion about money, and arrays are compared element by element.
+ */
+function sameValue_(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return round2_(a) === round2_(b);
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!sameValue_(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  // Plain objects compare by their own keys, so an expected literal such as
+  // { walkIn: 0, delivery: 0 } can be asserted without being the same object.
+  var aIsObj = a !== null && typeof a === 'object';
+  var bIsObj = b !== null && typeof b === 'object';
+  if (aIsObj || bIsObj) {
+    if (!aIsObj || !bIsObj) return false;
+    var aKeys = Object.keys(a);
+    var bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (var k = 0; k < aKeys.length; k++) {
+      if (!b.hasOwnProperty(aKeys[k])) return false;
+      if (!sameValue_(a[aKeys[k]], b[aKeys[k]])) return false;
+    }
+    return true;
+  }
+
+  return a === b;
+}
+
+/** Readable rendering for a failure message: arrays as JSON, not "[object]". */
+function describeValue_(v) {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (Array.isArray(v) || typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
 function eq_(suite, label, actual, expected) {
-  var a = typeof actual === 'number' ? round2_(actual) : actual;
-  var e = typeof expected === 'number' ? round2_(expected) : expected;
-  if (a === e) {
+  if (sameValue_(actual, expected)) {
     suite.passed++;
   } else {
-    suite.failures.push(label + ': expected ' + e + ', got ' + a);
+    suite.failures.push(label + ': expected ' + describeValue_(expected) +
+      ', got ' + describeValue_(actual));
   }
 }
 
@@ -1930,6 +1977,59 @@ function testManualCounts() {
   eq_(s, 'getManualStockState is public', typeof getManualStockState, 'function');
   eq_(s, 'saveManualStockCount is public', typeof saveManualStockCount, 'function');
   eq_(s, 'deleteManualStockCount is public', typeof deleteManualStockCount, 'function');
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Food cost — packing rules and blending (README §13.D30, §13.D31)
+// ---------------------------------------------------------------------------
+
+function testFoodCostPackaging() {
+  var s = newSuite_();
+
+  // The owner's rules. Bento 0.5 is a physical fact: two sides per box, one waffle
+  // per side, so a single-waffle walk-in still uses a whole box.
+  eq_(s, 'walk-in bento is half', PACKAGING_RULES.walkIn['Bento Box'], 0.5);
+  eq_(s, 'walk-in has no box', PACKAGING_RULES.walkIn['Waffle Box'], undefined);
+  eq_(s, 'delivery box', PACKAGING_RULES.delivery['Waffle Box'], 1);
+  eq_(s, 'delivery tray', PACKAGING_RULES.delivery['Waffle Tray'], 1);
+  eq_(s, 'stick on both', [
+    PACKAGING_RULES.walkIn['Waffle Sticks Large'],
+    PACKAGING_RULES.delivery['Waffle Sticks Large']
+  ], [1, 1]);
+
+  // Tissue must not appear in either pack: it is a period expense, and excluding it
+  // from BOTH keeps the standard and actual figures comparable.
+  eq_(s, 'tissue not in walk-in', PACKAGING_RULES.walkIn['Tissue'], undefined);
+  eq_(s, 'tissue not in delivery', PACKAGING_RULES.delivery['Tissue'], undefined);
+
+  // Pricing uses the item's base unit, which is what makes Poly bag (held in kg,
+  // used in grams) come out right.
+  var avg = {
+    'waffle sticks large': 1.3,
+    'bento box': 5,
+    'waffle box': 5,
+    'waffle tray': 5.9,
+    'poly bag': 0.274      // 274 per kg -> per gram
+  };
+  var std = standardPackCost_(avg);
+  eq_(s, 'walk-in pack cost', std.walkIn, 5.17);
+  eq_(s, 'delivery pack cost', std.delivery, 13.57);
+  eq_(s, 'unpriced items cost zero, not NaN', standardPackCost_({}),
+    { walkIn: 0, delivery: 0 });
+
+  // Blending by the back-solved delivery share.
+  eq_(s, 'all walk-in', blendPackCost_(5.17, 13.57, 0).cost, 5.17);
+  eq_(s, 'all delivery', blendPackCost_(5.17, 13.57, 1).cost, 13.57);
+  eq_(s, 'half and half', blendPackCost_(5.17, 13.57, 0.5).cost, 9.37);
+  eq_(s, 'above 1 clamps', blendPackCost_(5.17, 13.57, 1.8).cost, 13.57);
+  eq_(s, 'clamp is flagged', blendPackCost_(5.17, 13.57, 1.8).clamped, true);
+  eq_(s, 'below 0 clamps', blendPackCost_(5.17, 13.57, -0.5).cost, 5.17);
+
+  // An unknown share must stay blank. `Number('')` is 0, which would read as
+  // "every waffle was walk-in" and understate packaging by the delivery premium.
+  eq_(s, 'unknown share is blank, not all walk-in', blendPackCost_(5.17, 13.57, '').cost, '');
 
   return s;
 }

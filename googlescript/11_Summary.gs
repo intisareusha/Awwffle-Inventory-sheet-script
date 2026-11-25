@@ -36,9 +36,24 @@ function summaryBazar(startDate, endDate, filters) {
   return summaryBazar_(startDate, endDate, filters);
 }
 
-/** Stock position at a date, with filters applied. */
+/**
+ * Stock position at a date, with filters applied.
+ */
 function summaryStock(asOf, filters) {
   return summaryStock_(asOf, filters);
+}
+
+/**
+ * Food cost for a range: the real cost of a waffle, built from four sources.
+ *
+ * README §13.D30/§13.D31 and the owner's decided rules (see topping-packaging-group.md):
+ *   - recipe cost is EXACT (Measurements x Batches, already in summaryBatches_);
+ *   - topping cost is an ESTIMATE, only valid between two physical counts;
+ *   - packaging is shown twice — a standard per-waffle rule and the actual usage;
+ *   - equipment and tissue are period expenses, never per waffle.
+ */
+function summaryFoodCost(startDate, endDate) {
+  return summaryFoodCost_(startDate, endDate);
 }
 
 /** Turns a preset name ('thisMonth', 'last7', …) into a concrete range. */
@@ -864,5 +879,392 @@ function summaryStock_(asOf, filters) {
     lowCount: lowCount,
     negativeCount: negativeCount,
     batchOpenDays: computed.openDays
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Food cost — the real cost of a waffle
+// ---------------------------------------------------------------------------
+//
+// WHAT IS EXACT AND WHAT IS NOT
+// This view mixes figures of very different confidence, so every line carries its
+// nature and the UI prints it. Presenting an estimate as if it were exact is worse
+// than showing nothing:
+//
+//   recipe    exact    Measurements x Batches, valued at weighted-average cost
+//   sold      exact    POS Units Sold for Kind = waffle
+//   produced  exact    Batter batches x waffles-per-batch
+//   standard  rule     per-waffle packaging rules x average cost
+//   actual    estimate Packaging stock used between two physical counts
+//   toppings  estimate Toppings stock used between two physical counts
+//   equipment period   operating supplies, never divided per waffle
+//   tissue    period   excluded from both packaging figures by owner decision
+//
+// WHY COUNT-TO-COUNT
+// A manual count is a SET-TO statement, not a usage delta (13_Adjustments.gs). Usage
+// is only recognised when a LATER count exists, so a range that does not end on a
+// count shows purchases but not consumption. Rather than print that low number as
+// if it were usage, the view reports "not measured".
+
+/**
+ * The packaging rules, per waffle, as decided by the owner.
+ *
+ * Bento is 0.5 because one box has two sides and each side serves one waffle: two
+ * waffles use one box, one waffle uses one box and wastes a side. The wasted half is
+ * real cost, so 0.5 is exact rather than an average — do not "correct" it down.
+ *
+ * Tissue is deliberately absent: it has no per-waffle rule, so it cannot sit in a
+ * standard pack. It is reported as a period expense instead (see §6.4 of the plan).
+ */
+var PACKAGING_RULES = {
+  walkIn: {
+    'Waffle Sticks Large': 1,
+    'Bento Box': 0.5,
+    'Poly bag': { quantity: 5, unit: 'gm' }
+  },
+  delivery: {
+    'Waffle Sticks Large': 1,
+    'Waffle Box': 1,
+    'Waffle Tray': 1,
+    'Poly bag': { quantity: 5, unit: 'gm' }
+  }
+};
+
+/** Cost of one packaging item at a quantity, handling gram-based items (Poly bag). */
+function packagingLineCost_(itemName, rule, avgCostByItem, itemByMatch) {
+  var item = findItem_(itemName);
+  if (!item) return 0;
+
+  var avgPerBase = Number(avgCostByItem[normaliseItemName_(itemName)] || 0);
+  if (!(avgPerBase > 0)) return 0;
+
+  // A piece rule is a straight count. A {quantity, unit} rule converts to the base
+  // unit first, which is why Poly bag (held in kg, used in grams) works.
+  if (typeof rule === 'number') {
+    var perBase = baseMultiplier_(item.unit, item.perPieceWeight);
+    return rule * perBase * avgPerBase;
+  }
+
+  var baseQty = toBaseQuantity_(rule.quantity, rule.unit, item.perPieceWeight);
+  return (baseQty === null ? 0 : baseQty) * avgPerBase;
+}
+
+/**
+ * Standard packaging cost for one waffle of each channel, priced from live costs.
+ *
+ * Pure: takes the average cost per item and returns money per waffle.
+ */
+function standardPackCost_(avgCostByItem) {
+  function channel(rules) {
+    var total = 0;
+    Object.keys(rules).forEach(function (name) {
+      total += packagingLineCost_(name, rules[name], avgCostByItem);
+    });
+    return round2_(total);
+  }
+  return { walkIn: channel(PACKAGING_RULES.walkIn), delivery: channel(PACKAGING_RULES.delivery) };
+}
+
+/**
+ * Blends the two channel costs by how much of the period was delivery.
+ *
+ * The delivery share is BACK-SOLVED from how many Waffle Boxes were used, because
+ * the POS cannot tell a walk-in from a delivery order. Clamped to 0..1: a share
+ * outside that range means the box count and the sales count disagree, which is a
+ * data problem the caller should surface rather than hide behind a clamped number.
+ */
+function blendPackCost_(walkInCost, deliveryCost, deliveryShare) {
+  // An absent share must stay absent. `Number('')` is 0, which would silently read
+  // as "every waffle was walk-in" and understate packaging by the delivery premium.
+  if (deliveryShare === '' || deliveryShare === null || deliveryShare === undefined) {
+    return { cost: '', clamped: false };
+  }
+
+  var share = Number(deliveryShare);
+  if (!isFinite(share)) return { cost: '', clamped: false };
+
+  var clamped = share < 0 || share > 1;
+  var s = Math.min(1, Math.max(0, share));
+  return {
+    cost: round2_(walkInCost * (1 - s) + deliveryCost * s),
+    clamped: clamped
+  };
+}
+
+/**
+ * Snapshot of stock at one date, shaped for cost-by-group maths.
+ *
+ * WHY A SNAPSHOT
+ * `computeStock_` reads and values every item, so calling it once per group per
+ * date meant twelve full valuations for one view — the same quadratic pattern that
+ * previously pushed this module into DEADLINE_EXCEEDED. The food-cost view needs at
+ * most two dates, so it values each ONCE and reads every group from that result.
+ *
+ * Returns { byItem, avgCost } where `byItem` maps a normalised name to
+ * { usedCost, countDate, counted }.
+ */
+function stockSnapshotAt_(asOf) {
+  var computed = computeStock_(asOf);
+  var byItem = {};
+  var avgCost = {};
+
+  computed.rows.forEach(function (r) {
+    var key = normaliseItemName_(r.item);
+    byItem[key] = {
+      usedCost: r.usedCost || 0,
+      countDate: r.countDate || '',
+      counted: !!r.countDate
+    };
+    avgCost[key] = r.avgCost || 0;
+  });
+
+  return { byItem: byItem, avgCost: avgCost };
+}
+
+/**
+ * Used cost of a set of items from one snapshot, plus the newest count date.
+ *
+ * `counted` is true only when EVERY item in the group has a count, because a group
+ * total is only as trustworthy as its weakest member: one uncounted item drags the
+ * group figure down silently.
+ */
+function groupUsageFrom_(snapshot, itemNames) {
+  var usedCost = 0;
+  var latestCount = '';
+  var allCounted = (itemNames || []).length > 0;
+
+  (itemNames || []).forEach(function (name) {
+    var row = snapshot.byItem[normaliseItemName_(name)];
+    if (!row) { allCounted = false; return; }
+    usedCost += row.usedCost;
+    if (!row.counted) allCounted = false;
+    if (row.countDate && row.countDate > latestCount) latestCount = row.countDate;
+  });
+
+  return { usedCost: round2_(usedCost), countDate: latestCount, counted: allCounted };
+}
+
+/** Items in one group, from the live item master. */
+function itemsInGroup_(group) {
+  return readRecords_(SHEETS.ITEM_MASTER)
+    .filter(function (r) {
+      return String(r['Active']) !== 'FALSE' &&
+             String(r['Group']) === group &&
+             String(r['Item Name'] || '');
+    })
+    .map(function (r) { return String(r['Item Name']); });
+}
+
+/** Waffles sold in a range: POS Units Sold for Kind = waffle (extras excluded). */
+function wafflesSoldIn_(startDate, endDate) {
+  var start = toDate_(startDate);
+  var end = toDate_(endDate);
+
+  var kindOf = {};
+  posProducts_().forEach(function (p) { kindOf[normaliseItemName_(p.name)] = p.kind; });
+
+  var sold = 0;
+  readRecords_(SHEETS.POS_SNAPSHOTS).forEach(function (r) {
+    var product = String(r['Product'] || '');
+    if (!product) return;
+    if (kindOf[normaliseItemName_(product)] !== 'waffle') return;
+
+    var d = toDate_(r['Date']);
+    if (!d) return;
+    if (start && d < start) return;
+    if (end && d > end) return;
+
+    var n = toNumber_(r['Units Sold']);
+    if (n !== null) sold += n;
+  });
+
+  return round2_(sold);
+}
+
+/**
+ * Builds the food-cost view for a range.
+ *
+ * Reads every source once. The expensive parts — computeStock_ for two dates and
+ * the batch cost model — are called once each, not per line.
+ */
+function summaryFoodCost_(startDate, endDate) {
+  var start = toDate_(startDate);
+  var end = toDate_(endDate);
+
+  var bazarRows = readRecords_(SHEETS.BAZAR);
+  var openingRows = readRecords_(SHEETS.OPENING_STOCK);
+  var cutOff = openingCutOff_();
+  var settings = readSettings_();
+  var closedSet = closedDaySet_();
+
+  // ---- Waffles produced: Batter batches x waffles per batch -----------------
+  // Batter is the base mix, so its batch count is what a waffle comes from. The
+  // other preparations have different yields and are not used as the denominator.
+  var batchRows = readRecords_(SHEETS.BATCHES);
+  var batterBatches = 0;
+  batchRows.forEach(function (r) {
+    var d = toDate_(r['Date']);
+    if (!d) return;
+    if (start && d < start) return;
+    if (end && d > end) return;
+    var n = toNumber_(r['Batter']);
+    if (n !== null) batterBatches += n;
+  });
+
+  var wafflesPerBatch = toNumber_(settingsLookup_(settings, 'waffles_per_batch:Batter', 0)) || 0;
+  var wafflesProduced = wafflesPerBatch > 0
+    ? round2_(batterBatches * wafflesPerBatch) : '';
+
+  // ---- Waffles sold ---------------------------------------------------------
+  var sold = wafflesSoldIn_(start, end);
+
+  // ---- Recipe cost: exact, and reused from the batches summary --------------
+  var batches = summaryBatches_(startDate, endDate, '');
+  var recipeCost = 0;
+  PREPARATIONS.forEach(function (p) {
+    recipeCost += batches.costByPreparation[p] || 0;
+  });
+  recipeCost = round2_(recipeCost);
+
+  // ---- Group usage, at both ends of the range -------------------------------
+  // Two valuations total, not one per group per date.
+  var endDate = end || new Date();
+  var startDateForUsage = start || cutOff;
+
+  var endSnap = stockSnapshotAt_(endDate);
+  var startSnap = stockSnapshotAt_(startDateForUsage);
+
+  var packagingItems = itemsInGroup_('Packaging');
+  var toppingItems = itemsInGroup_('Toppings');
+  var equipmentItems = itemsInGroup_('Equipments');
+  var tissueItems = ['Tissue'];
+
+  // Packaging actual deliberately excludes Tissue: it is a period expense, and
+  // keeping it out of both the standard and actual figures keeps them comparable.
+  var packagingForCost = packagingItems.filter(function (n) {
+    return normaliseItemName_(n) !== normaliseItemName_('Tissue');
+  });
+
+  var packEnd = groupUsageFrom_(endSnap, packagingForCost);
+  var packStart = groupUsageFrom_(startSnap, packagingForCost);
+  var toppingEnd = groupUsageFrom_(endSnap, toppingItems);
+  var toppingStart = groupUsageFrom_(startSnap, toppingItems);
+  var equipEnd = groupUsageFrom_(endSnap, equipmentItems);
+  var equipStart = groupUsageFrom_(startSnap, equipmentItems);
+  var tissueEnd = groupUsageFrom_(endSnap, tissueItems);
+  var tissueStart = groupUsageFrom_(startSnap, tissueItems);
+
+  // A count-bracketed delta is only meaningful when BOTH ends are fully counted.
+  function delta(endState, startState) {
+    if (!endState.counted || !startState.counted) {
+      return { cost: '', measured: false, fromCount: startState.countDate, toCount: endState.countDate };
+    }
+    return {
+      cost: round2_(endState.usedCost - startState.usedCost),
+      measured: true,
+      fromCount: startState.countDate,
+      toCount: endState.countDate
+    };
+  }
+
+  var packagingActual = delta(packEnd, packStart);
+  var toppingCost = delta(toppingEnd, toppingStart);
+  var equipmentCost = delta(equipEnd, equipStart);
+  var tissueCost = delta(tissueEnd, tissueStart);
+
+  // ---- Standard packaging, priced from live averages ------------------------
+  var packStandard = standardPackCost_(endSnap.avgCost);
+
+  // Delivery share, back-solved from Waffle Box usage. Waffle Box is delivery-only,
+  // so boxes used / waffles sold is the share of waffles that went out for delivery.
+  var boxEnd = groupUsageFrom_(endSnap, ['Waffle Box']);
+  var boxStart = groupUsageFrom_(startSnap, ['Waffle Box']);
+  var boxesUsed = 0;
+  var deliveryShare = '';
+  var boxAvg = Number(endSnap.avgCost[normaliseItemName_('Waffle Box')] || 0);
+
+  if (boxEnd.counted && boxStart.counted && boxAvg > 0) {
+    boxesUsed = round2_((boxEnd.usedCost - boxStart.usedCost) / boxAvg);
+    deliveryShare = sold > 0 ? round2_(boxesUsed / sold) : '';
+  }
+
+  // When the mix is not derivable the standard figure is left blank rather than
+  // assumed to be all walk-in — the cheaper channel would flatter the result.
+  var blended = blendPackCost_(packStandard.walkIn, packStandard.delivery, deliveryShare);
+
+  var standardPerWaffle = blended.cost;
+
+  // ---- Per-waffle figures ---------------------------------------------------
+  function perWaffle(total, denominator) {
+    if (total === '' || total === null || !denominator || denominator <= 0) return '';
+    return round2_(total / denominator);
+  }
+
+  var packagingActualPerWaffle = packagingActual.measured
+    ? perWaffle(packagingActual.cost, sold) : '';
+  var toppingPerWaffle = toppingCost.measured ? perWaffle(toppingCost.cost, sold) : '';
+
+  // Recipe cost per waffle is per PRODUCED waffle: it is what was made, not sold.
+  var recipePerWaffle = perWaffle(recipeCost, wafflesProduced);
+
+  // ---- The two blended totals ----------------------------------------------
+  // A = recipe + toppings + standard packaging. B = recipe + toppings + actual.
+  // Both exclude tissue and equipment, so the gap isolates packaging.
+  var totalA = '';
+  var totalB = '';
+  var recipeBase = recipePerWaffle === '' ? 0 : recipePerWaffle;
+  var toppingBase = toppingPerWaffle === '' ? 0 : toppingPerWaffle;
+
+  if (recipePerWaffle !== '' && toppingPerWaffle !== '' && standardPerWaffle !== '') {
+    totalA = round2_(recipeBase + toppingBase + standardPerWaffle);
+  }
+  if (recipePerWaffle !== '' && toppingPerWaffle !== '' && packagingActualPerWaffle !== '') {
+    totalB = round2_(recipeBase + toppingBase + packagingActualPerWaffle);
+  }
+
+  var breakdown = (start && end) ? openDayBreakdown_(start, end, closedSet) : null;
+
+  return {
+    range: { start: start ? dateKey_(start) : '', end: end ? dateKey_(end) : '' },
+    openDays: breakdown ? breakdown.openDays : 0,
+
+    wafflesSold: sold,
+    wafflesProduced: wafflesProduced,
+    batterBatches: round2_(batterBatches),
+    wafflesPerBatch: wafflesPerBatch,
+
+    recipeCost: recipeCost,
+    recipePerWaffle: recipePerWaffle,
+
+    toppingCost: toppingCost.cost,
+    toppingPerWaffle: toppingPerWaffle,
+    toppingMeasured: toppingCost.measured,
+    toppingFromCount: toppingCost.fromCount,
+    toppingToCount: toppingCost.toCount,
+
+    packagingStandardPerWaffle: standardPerWaffle,
+    packagingStandardWalkIn: packStandard.walkIn,
+    packagingStandardDelivery: packStandard.delivery,
+    packagingActualCost: packagingActual.cost,
+    packagingActualPerWaffle: packagingActualPerWaffle,
+    packagingMeasured: packagingActual.measured,
+    packagingFromCount: packagingActual.fromCount,
+    packagingToCount: packagingActual.toCount,
+
+    deliveryShare: deliveryShare,
+    deliveryShareClamped: blended.clamped,
+    boxesUsed: boxesUsed,
+
+    equipmentCost: equipmentCost.cost,
+    equipmentMeasured: equipmentCost.measured,
+    tissueCost: tissueCost.cost,
+    tissueMeasured: tissueCost.measured,
+
+    totalA: totalA,
+    totalB: totalB,
+    gapBminusA: (totalA !== '' && totalB !== '') ? round2_(totalB - totalA) : '',
+
+    exclusionNote: 'Both totals exclude tissue and equipment. ' +
+      'Recipe cost is per waffle produced; toppings and packaging are per waffle sold.'
   };
 }
