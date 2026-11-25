@@ -471,9 +471,13 @@
     setPresetActive(which, '');
   }
 
-  // runTab/loadSummary call tabs 'batch'/'bazar'/'stock'; the panes are named
-  // 'batches'/'bazar'/'stock'. This is the single place that maps the two.
-  var PANE_FOR = { batch: 'pane-batches', bazar: 'pane-bazar', stock: 'pane-stock' };
+  // runTab/loadSummary call tabs 'batch'/'bazar'/'stock'/'food'; the panes are named
+  // 'batches'/'bazar'/'stock'/'food'. This is the single place that maps the two.
+  // A tab missing from this map gets no spinner and no disabled controls, because
+  // setBusy returns early when it cannot find the pane.
+  var PANE_FOR = {
+    batch: 'pane-batches', bazar: 'pane-bazar', stock: 'pane-stock', food: 'pane-food'
+  };
 
   /*
    * Puts a pane into (or out of) its loading state.

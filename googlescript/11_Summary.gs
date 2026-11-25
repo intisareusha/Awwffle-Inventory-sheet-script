@@ -1118,13 +1118,35 @@ function summaryFoodCost_(startDate, endDate) {
   // ---- Waffles sold ---------------------------------------------------------
   var sold = wafflesSoldIn_(start, end);
 
-  // ---- Recipe cost: exact, and reused from the batches summary --------------
-  var batches = summaryBatches_(startDate, endDate, '');
+  // ---- Recipe cost: exact, computed WITHOUT the batches trend table ---------
+  //
+  // summaryBatches_ also builds the six-row cost comparison, which is another six
+  // full cost models — work this view never displays and the main reason the tab
+  // felt slow. The recipe figure only needs the batch totals for the range and ONE
+  // cost model, so it is computed directly from the same two helpers.
+  var batchStats = batchTotalsFromRows_(batchRows, startDate, endDate);
+  var lastBatchDate = null;
+  batchRows.forEach(function (r) {
+    var d = toDate_(r['Date']);
+    if (!d) return;
+    if (start && d < start) return;
+    if (end && d > end) return;
+    if (!lastBatchDate || d > lastBatchDate) lastBatchDate = d;
+  });
+
+  var costModel = batchCostModel_(bazarRows, openingRows, cutOff, end || lastBatchDate);
   var recipeCost = 0;
+  var costByPreparation = {};
   PREPARATIONS.forEach(function (p) {
-    recipeCost += batches.costByPreparation[p] || 0;
+    // Round per preparation, then sum — exactly what summaryBatches_ does. Summing
+    // raw values and rounding once could differ by a cent, and two tabs showing
+    // different totals for the same figure destroys trust in both.
+    var cost = round2_((batchStats.totals[p] || 0) * (costModel.perBatch[p] || 0));
+    costByPreparation[p] = cost;
+    recipeCost += cost;
   });
   recipeCost = round2_(recipeCost);
+  var batchesRecorded = batchStats.records;
 
   // ---- Group usage, at both ends of the range -------------------------------
   // Two valuations total, not one per group per date.
@@ -1235,6 +1257,7 @@ function summaryFoodCost_(startDate, endDate) {
 
     recipeCost: recipeCost,
     recipePerWaffle: recipePerWaffle,
+    batchesRecorded: batchesRecorded,
 
     toppingCost: toppingCost.cost,
     toppingPerWaffle: toppingPerWaffle,
