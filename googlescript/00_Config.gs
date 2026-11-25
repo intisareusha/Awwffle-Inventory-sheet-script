@@ -46,6 +46,28 @@ var SHEETS = {
 var GROUPS = ['Recipes', 'Toppings', 'Packaging', 'Equipments', 'Resale'];
 
 /**
+ * Item renames applied to live data by setup.
+ *
+ * `{ from, to }` — `to` must be the canonical name in ITEMS. Setup rewrites the
+ * old name to the new one in every sheet that stores an item name, BEFORE ItemMaster
+ * seeding runs. Seeding first would append the new name as a second row and the
+ * Stock view would value the item twice.
+ *
+ * Why the old name is not also kept as a migration alias: the `MIGRATED-USE-<name>`
+ * Adjustment ID is built from the canonical name, so an alias that resolves old
+ * rows would make migration believe that usage was never imported and write it a
+ * second time. Renaming the rows in place is the only safe direction.
+ */
+var ITEM_RENAMES = [
+  { from: 'Water', to: 'Water 500ml' }
+];
+
+/** Sheets that store an item name in an `Item` column. */
+var ITEM_NAME_SHEETS = [
+  'ItemMaster', 'Bazar', 'OpeningStock', 'Adjustments'
+];
+
+/**
  * Preparations, in the required order (README §3.2).
  * A "batch" is the owner's own unit; one batch consumes the Measurements row.
  */

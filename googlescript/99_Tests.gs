@@ -229,7 +229,7 @@ function testItemMasterIntegrity() {
       .every(function (i) { return i.population === POPULATION.RECIPE; }), true);
   eq_(s, 'only Water is resale',
     ITEMS.filter(function (i) { return i.population === POPULATION.RESALE; })
-      .map(function (i) { return i.name; }).join(','), 'Water');
+      .map(function (i) { return i.name; }).join(','), 'Water 500ml');
 
   // Every item has a valid unit and base unit.
   var badUnits = ITEMS.filter(function (i) {
@@ -253,16 +253,30 @@ function testItemMasterIntegrity() {
   eq_(s, 'Nutella per piece 350', findItem_('Nutella').perPieceWeight, 350);
   eq_(s, 'Whipped Cream per piece 1000', findItem_('Whipped Cream').perPieceWeight, 1000);
 
-  // Populations (§3.3, §13.G1).
-  eq_(s, 'Water is resale', findItem_('Water').population, POPULATION.RESALE);
-  eq_(s, 'Water links to POS', findItem_('Water').posLink, 'Water 500ml');
+  // Populations (§3.3, §13.G1). The resale item is named exactly as its POS
+  // product, so the link is a same-string match rather than a lookup by similarity.
+  eq_(s, 'Water is resale', findItem_('Water 500ml').population, POPULATION.RESALE);
+  eq_(s, 'Water links to POS', findItem_('Water 500ml').posLink, 'Water 500ml');
+  eq_(s, 'old Water name is gone', findItem_('Water'), null);
   eq_(s, 'Ice cream vanilla is manual', findItem_('Ice cream (vanilla)').population, POPULATION.MANUAL);
   eq_(s, 'Ice cream chocolate is manual', findItem_('Ice cream (chocolate)').population, POPULATION.MANUAL);
   eq_(s, 'Ice cream strawberry is manual', findItem_('Ice cream (strawberry)').population, POPULATION.MANUAL);
 
   // Only Water may be POS-linked (§12 non-goal).
   var posLinked = ITEMS.filter(function (i) { return i.posLink; }).map(function (i) { return i.name; });
-  eq_(s, 'only Water has a POS link', posLinked.join(','), 'Water');
+  eq_(s, 'only Water has a POS link', posLinked.join(','), 'Water 500ml');
+
+  // The POS stock link must point at a name that actually exists in the catalogue,
+  // or a Water sale would silently stop reducing stock.
+  var links = posStockLinks_();
+  eq_(s, 'POS stock link resolves to a real item',
+    links.every(function (l) { return findItem_(l.item) !== null; }), true);
+  eq_(s, 'POS stock link target', links.map(function (l) { return l.item; }).join(','), 'Water 500ml');
+
+  // Renames declared in config must target real catalogue names, or setup would
+  // rename data to something the system cannot resolve.
+  var badRenames = ITEM_RENAMES.filter(function (r) { return !findItem_(r.to); });
+  eq_(s, 'every rename target exists', badRenames.map(function (r) { return r.to; }).join(', '), '');
 
   // Empty Container must not exist (§3.1, §9).
   eq_(s, 'Empty Container absent', findItem_('Empty Container'), null);
@@ -1856,7 +1870,7 @@ function testManualCounts() {
     allowedUnitsForItem_(polyBag).join('|'), 'kg|gm');
   eq_(s, 'Flour is not countable', isCountableItem_(flour), false);
   eq_(s, 'Oreo is countable', isCountableItem_(oreo), true);
-  eq_(s, 'Water (resale) is countable', isCountableItem_(findItem_('Water')), true);
+  eq_(s, 'Water (resale) is countable', isCountableItem_(findItem_('Water 500ml')), true);
   eq_(s, 'Nutella (recipe) is not countable', isCountableItem_(findItem_('Nutella')), false);
 
   // Every non-recipe item must stay countable after the Packaging/Resale split.

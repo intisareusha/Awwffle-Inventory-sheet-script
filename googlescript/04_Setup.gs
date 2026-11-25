@@ -38,10 +38,19 @@ function setupSpreadsheet_() {
   // 2b. Due-customer list (seeded once, then owner/entry-maintained)
   ensureCustomersSheet_(created, skipped, seeded);
 
-  // 3. Item master
+  // 3. Renames BEFORE seeding.
+  //
+  // `ensureItemMasterSheet_` seeds any name in ITEMS that is missing from the
+  // sheet. If an item was renamed in code, seeding would therefore ADD the new
+  // name beside the old row — two rows for one item, and the Stock view would
+  // value both. So the rename must run first, while the result is still a single
+  // row.
+  var renames = renameItemEverywhere_(ITEM_RENAMES);
+
+  // 4. Item master
   ensureItemMasterSheet_(settings, created, skipped, seeded);
 
-  // 3b. Bring the live Group column in line with the catalogue.
+  // 4b. Bring the live Group column in line with the catalogue.
   //
   // Setup seeds only MISSING items and never rewrites an existing row, so a
   // regroup in code would otherwise never reach a sheet already in daily use —
@@ -97,6 +106,9 @@ function setupSpreadsheet_() {
   if (groupSync && groupSync.changed && groupSync.changed.length) {
     summary += ', ' + groupSync.changed.length + ' regrouped';
   }
+  if (renames && renames.changed && renames.changed.length) {
+    summary += ', ' + renames.changed.length + ' renamed';
+  }
 
   logEvent_('SETUP', 'Setup completed', summary);
   return {
@@ -104,6 +116,7 @@ function setupSpreadsheet_() {
     skipped: skipped,
     seeded: seeded,
     regrouped: groupSync && groupSync.changed ? groupSync.changed : [],
+    renamed: renames && renames.changed ? renames.changed : [],
     summary: summary
   };
 }
@@ -315,6 +328,86 @@ function ensureCustomersSheet_(created, skipped, seeded) {
 // ---------------------------------------------------------------------------
 // Item master
 // ---------------------------------------------------------------------------
+
+/**
+ * Renames an item everywhere it is stored, in place.
+ *
+ * WHY IN PLACE, NOT AN ALIAS
+ * A historical row matched through an alias would still read as the old name, and
+ * `migrateManualUsage_` decides whether usage was already imported by looking for
+ * the Adjustment ID `MIGRATED-USE-<canonical name>`. Renaming the stored value
+ * keeps that ID meaningful; leaving the old value behind and resolving it by alias
+ * would make migration write the same usage a second time.
+ *
+ * SAFETY
+ *   - Rewrites one column per sheet, matched on the normalised old name.
+ *   - Never adds, deletes or reorders a row.
+ *   - Does not touch any other column, including `Adjustment ID`.
+ *   - Idempotent: once renamed there is nothing left to match, so a second run
+ *     reports zero changes.
+ *   - Returns every row it changed so the caller can log or display it.
+ *
+ * @param {Array<{from:string,to:string}>} renames
+ */
+function renameItemEverywhere_(renames) {
+  var list = (renames || []).filter(function (r) {
+    return r && r.from && r.to && r.from !== r.to;
+  });
+
+  if (!list.length) return { changed: [], unknown: [] };
+
+  var result = { changed: [], unknown: [] };
+
+  ITEM_NAME_SHEETS.forEach(function (sheetName) {
+    if (!sheetExists_(sheetName)) return;
+
+    var sheet = getSheet_(sheetName);
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+
+    var headers = getHeaders_(sheet);
+    var col = colIndex_(headers, 'Item');
+    if (col < 0) return;
+
+    var lastCol = sheet.getLastColumn();
+    var values = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    var touched = false;
+
+    values.forEach(function (row, i) {
+      var current = String(row[col] === null ? '' : row[col]).trim();
+      if (!current) return;
+
+      var key = normaliseItemName_(current);
+      var match = null;
+      list.forEach(function (r) {
+        if (normaliseItemName_(r.from) === key) match = r;
+      });
+      if (!match) return;
+
+      values[i][col] = match.to;
+      touched = true;
+      result.changed.push({
+        sheet: sheetName,
+        row: i + 2,
+        from: current,
+        to: match.to
+      });
+    });
+
+    if (touched) {
+      sheet.getRange(2, 1, values.length, lastCol).setValues(values);
+    }
+  });
+
+  // Tidy the trailing space a rename can leave on a row that stored the old name
+  // with padding. Any remaining old name after this run is reported, not guessed.
+  result.changed.forEach(function (c) {
+    logEvent_('ITEMRENAME', 'Item renamed',
+      c.sheet + ' row ' + c.row + ': "' + c.from + '" -> "' + c.to + '"');
+  });
+
+  return result;
+}
 
 /**
  * Applies the current ITEMS groups to the live ItemMaster sheet.

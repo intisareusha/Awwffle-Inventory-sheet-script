@@ -16,7 +16,7 @@ var POS_PRODUCTS = [
   { name: 'Extra Banana',        kind: 'extra',  order: 1,  cost: 5,  sale: 15 },
   { name: 'Extra Nut',           kind: 'extra',  order: 2,  cost: 8,  sale: 20 },
   { name: 'Water 500ml',         kind: 'extra',  order: 3,  cost: 8,  sale: 20,
-    stockItem: 'Water', notes: 'Resale: one sale removes one piece of Water stock (§13.G1).' },
+    stockItem: 'Water 500ml', notes: 'Resale: one sale removes one piece of Water 500ml stock (§13.G1).' },
   { name: 'Ice Cream - Strawberry', kind: 'extra', order: 4, cost: 20, sale: 35,
     notes: 'Stock is topping, consumed by hand. A sale does NOT reduce stock (§13.G1).' },
   { name: 'Ice Cream - Chocolate',  kind: 'extra', order: 5, cost: 20, sale: 35,

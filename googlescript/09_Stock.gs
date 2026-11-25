@@ -24,7 +24,7 @@
  * THE THREE POPULATIONS (§3.3, §13.G1)
  *   Recipe-driven — consumption from Measurements x Batches, automatic.
  *   Manual        — consumption entered by hand (toppings, packaging).
- *   Resale        — Water only: POS sales consume one piece each.
+ *   Resale        — Water 500ml only: POS sales consume one piece each.
  */
 
 // ---------------------------------------------------------------------------
@@ -338,7 +338,7 @@ function remainingAfterCount_(countedBase, purchasesAfter, netOutAfter, resaleAf
 }
 
 /**
- * POS-driven usage for resale items (§13.G1). Water only.
+ * POS-driven usage for resale items (§13.G1). Water 500ml only.
  *
  * One POS sale consumes one stock unit. The cumulative figure comes from the
  * POS product's lifetime total, which survives counter resets.

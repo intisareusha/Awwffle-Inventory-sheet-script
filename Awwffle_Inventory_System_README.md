@@ -171,7 +171,10 @@ rates are unchanged; only the group label moves.
 
 Five groups, in this order: `Recipes`, `Toppings`, `Packaging`, `Equipments`, `Resale`.
 
-`Water` carries the `Resale` group (a group of one). **Group is a display and filter
+`Water 500ml` carries the `Resale` group (a group of one) and is **named exactly as its
+POS product** — the exchange rate is one sale, one piece. The two are still linked
+through the explicit `posLink` field, never by assuming the names match (§13.C20).
+**Group is a display and filter
 label only** — every calculation is driven by an item's `Population`, not its group
 (§3.3, §17.3). Regrouping therefore cannot change recipe cost, stock valuation, cash
 or any historical record.
@@ -712,7 +715,7 @@ Design rule: if a number can be recomputed, it must never be stored as an input.
 - Do not let a POS stock-counter value be compared to or reconciled with physical ingredient stock value.
 - Do not back-fill daily invoice counts that were never recorded (§7.2).
 - Do not let a POS sale of an ice cream product reduce ice cream stock; ice cream consumption is entered by hand (§13.G1).
-- Do not add any stock item other than `Water` as a POS-driven resale link without an explicit decision (§13.G1).
+- Do not add any stock item other than `Water 500ml` as a POS-driven resale link without an explicit decision (§13.G1).
 - Do not infer "waffles per batch" at runtime from sales history; it is a Settings value seeded once (§13.D30).
 - Do not hard-code cost benchmarks or low-stock thresholds; they live in Settings and are owner-editable.
 - Do not treat a Bazar `Ref` as unique or as a record key; it groups invoice lines only (§5.2).
@@ -759,6 +762,7 @@ These are settled. Implement them as written; they are not open questions and mu
 24. **No conversion-flagging workflow.** The owner's stock quantities already express the correct basis per item (§6.1), so an unverified conversion is a data-setup problem, not a runtime prompt.
 25. **Stock value uses weighted average cost. Bazar keeps the latest purchase rate.** These are two different columns and must never be used interchangeably. See §6.2.1.
 26. **Wastage and damaged items are tracked in v1**, as a dedicated adjustment entry (item, quantity, reason, date). Wastage is recorded **separately from** theoretical recipe consumption and is never added into it, so a wasted unit is never counted as both consumed and wasted (§13.G6). The exact column layout is fixed at phase 2.
+27. **An item rename is applied to stored data, never resolved by alias.** When an item is renamed (owner decision: `Water` → `Water 500ml`, so it matches its POS product), setup rewrites the `Item` column in `ItemMaster`, `Bazar`, `OpeningStock` and `Adjustments` **before** item seeding runs. Seeding first would append the new name beside the old row and the Stock view would value the item twice. An alias is not a safe alternative: `MIGRATED-USE-<name>` is derived from the canonical name, so resolving old rows by alias would make migration import the same usage again. `Adjustment ID` is never rewritten.
 
 ## D. Recipes and product costs
 
@@ -812,7 +816,7 @@ These were the open items in v0.2. **All five blocking questions are now answere
 1. **Are `Water 500ml` and the three `Ice Cream` items resale products, ingredient stock, or both?**
    - *Original problem:* the workbook treats them as Stock rows *and* as POS products, with disconnected tracking (Water 16 used vs 18 sold; ice creams 1,000 used vs 7 sold, all three at zero remaining).
    - **ANSWER — they are not the same kind of item, and must be handled separately:**
-     - **`Water` is a resale product.** One POS sale of `Water 500ml` subtracts one piece from the `Water` stock row automatically. This is the only stock item driven by POS sales.
+     - **`Water 500ml` is a resale product.** One POS sale of `Water 500ml` subtracts one piece from the `Water 500ml` stock row automatically. The stock item and the POS product share one name; they remain linked through `posLink`, not by the name. This is the only stock item driven by POS sales.
      - **The three `Ice cream (…)` items are topping stock, not resale.** They are sold standalone on the POS, but that sale affects revenue only. Consumption is entered **manually by the owner when a can is finished**, exactly like the other toppings. A POS ice cream sale never reduces ice cream stock.
      - The historical mismatch (16 vs 18, 1,000 vs 7) is a consequence of the old workbook having no defined link. It is **not** to be back-corrected into agreement during migration; record it as a stated reconciliation difference and let the new rules apply from the cut-off forward.
    - This adds a third population to §17.3. The link is explicit configuration (`POS product → stock item`), never inferred from a similar name.
@@ -858,7 +862,7 @@ These are build decisions the owner has confirmed, and they govern how the syste
 Build and test in phases. Do not attempt a full build before the data model and formulas are agreed. The audit in §17 is already complete, so phase 1 is done — start at phase 2.
 
 1. ~~**Workbook audit and migration map**~~ — complete; see §17.
-2. **Data model and configuration** — define item master, categories, expense types, units and per-item base units, conversion rules, recipes, closed-day calendar, and stable IDs. Also define, from the v0.3 answers: dated product price history (§13.D29), per-preparation `waffles per batch` and cost benchmarks (§13.D), per-item low-stock/low-batch defaults (§13.G8), and the resale link between `Water 500ml` and the `Water` stock item (§13.G1).
+2. **Data model and configuration** — define item master, categories, expense types, units and per-item base units, conversion rules, recipes, closed-day calendar, and stable IDs. Also define, from the v0.3 answers: dated product price history (§13.D29), per-preparation `waffles per batch` and cost benchmarks (§13.D), per-item low-stock/low-batch defaults (§13.G8), and the resale link between `Water 500ml` and the `Water 500ml` stock item (§13.G1).
 3. **Historical migration** — import existing records and opening stock; apply the logged defect corrections (§9); generate the reconciliation report.
 4. **Bazar and purchasing** — implement single-entry purchasing and automatic stock increases, with the two-field category model.
 5. **Measurements and Batches** — implement fixed recipe data and daily batch entry via form.
@@ -911,7 +915,7 @@ The system is not ready for daily use until all of the following are true:
 - Cash in hand subtracts Discount exactly once.
 - Every expense figure comes from one expense table; no summary re-lists expense amounts as typed cells.
 - Historical records and opening stock reconcile against the original workbook, with every deliberate correction logged.
-- A `Water 500ml` POS sale reduces `Water` stock by exactly one piece, exactly once.
+- A `Water 500ml` POS sale reduces `Water 500ml` stock by exactly one piece, exactly once.
 - Selling an ice cream product does **not** change ice cream stock; its consumption is entered by hand as a topping.
 - Real cost is reported per preparation batch, and per waffle using the configured `waffles per batch` value, never a hard-coded constant.
 - Actual cost is shown against the owner's benchmark so a rising cost is visible while sales are low.
@@ -996,7 +1000,7 @@ Two structural details worth preserving exactly:
 |---|---|---|---|
 | Recipe-driven | 17 | Measurements × Batches, automatic | computed |
 | Manually maintained | 25 | typed Total Used / physical counts | blank by design |
-| Resale product | `Water` / `Water 500ml` | POS unit sales, 1 sale = 1 piece, automatic | blank by design |
+| Resale product | `Water 500ml` | POS unit sales, 1 sale = 1 piece, automatic | blank by design |
 
 Within those populations the 43 items are labelled by group: `Recipes` 17, `Toppings` 15,
 `Packaging` 6, `Equipments` 4, `Resale` 1 (§4.4). **Group is a label; population is the
@@ -1005,7 +1009,7 @@ Equipments; Water is deliberately not among them because its movement comes from
 
 The rationale is that toppings and packaging have no established per-waffle pattern yet. This is deliberate, not a gap. The design must allow a manual item to be promoted to a recipe-driven item later without restructuring anything.
 
-The resale case is separate again: it is driven by sales rather than production, and it applies to `Water` only (§13.G1). `Water` is the sole item whose stock moves from a POS sale. The three `Ice cream (…)` items sell on the POS but are consumed by hand as toppings, so their stock never moves from a sale.
+The resale case is separate again: it is driven by sales rather than production, and it applies to `Water 500ml` only (§13.G1). `Water 500ml` is the sole item whose stock moves from a POS sale. The three `Ice cream (…)` items sell on the POS but are consumed by hand as toppings, so their stock never moves from a sale.
 
 ## 17.4 What reconciles
 
@@ -1053,7 +1057,7 @@ These do not exist in the source and have no historical data to import. They mus
 - Weighted-average cost history per item (§6.2.1)
 - **Dated price history per product for POS `Cost` and `Sale`** (§13.D29, §13.G4)
 - **Per-preparation `waffles per batch` setting and cost benchmarks** (§13.D "Cost benchmark and yield settings", §13.G2)
-- **Explicit resale link mapping `Water 500ml` to the `Water` stock item** (§13.G1)
+- **Explicit resale link mapping `Water 500ml` to the `Water 500ml` stock item** (§13.G1)
 
 ## 17.7 Field-level reference
 
@@ -1084,7 +1088,7 @@ Two things the migration must **not** carry over from these layouts:
 
 | # | change | where |
 |---|---|---|
-| 1 | `Water` is a POS-driven resale item; the three ice creams are manual topping stock | §3.3, §13.G1, §17.3 |
+| 1 | `Water 500ml` is a POS-driven resale item; the three ice creams are manual topping stock | §3.3, §13.G1, §17.3 |
 | 2 | Real cost reported per preparation batch **and** per waffle via an owner-editable `waffles per batch` setting, with cost benchmarks | §13.D30, §13.D (settings) |
 | 3 | POS `Cost` and `Sale` stored as dated price history | §13.D29, §13.G4 |
 | 4 | Discount and due are dated **daily totals**, not per-invoice records | §8.1, §13.B14, §13.B16, §13.G3 |

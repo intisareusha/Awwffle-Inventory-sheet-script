@@ -76,7 +76,12 @@ var ITEMS = [
     notes: 'Topping stock, entered by hand when a can finishes (§13.G1).' },
 
   // ---- Resale (one item) — POS sales drive stock, not a recipe or a count ----
-  { name: 'Water',              group: 'Resale', unit: 'p',  baseUnit: 'p',  rate: 8,    population: POPULATION.RESALE,
+  //
+  // Named exactly as the POS product, per the owner's instruction. The name and
+  // the POS product are the SAME string here, which is deliberate and harmless:
+  // they live in different sheets and are matched through `posLink`, never by
+  // assuming a name match (README §13.C20, §13.G1).
+  { name: 'Water 500ml',        group: 'Resale', unit: 'p',  baseUnit: 'p',  rate: 8,    population: POPULATION.RESALE,
     posLink: 'Water 500ml', notes: 'Resale item: one POS sale removes one piece (D/§13.G1).' },
 
   // ---- Packaging — per-waffle consumables ----

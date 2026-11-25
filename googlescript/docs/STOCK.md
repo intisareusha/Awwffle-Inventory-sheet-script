@@ -111,7 +111,7 @@ Each behaves differently, on purpose (§17.3, §13.G1):
 |---|---|---|
 | **Recipe-driven** | Flour, Milk, Nutella, Butter | Automatic: Measurements × Batches |
 | **Manual** | Oreo, Kitkat, boxes, tissue | You enter usage by hand |
-| **Resale** | Water | Automatic: one POS sale = one piece |
+| **Resale** | Water 500ml | Automatic: one POS sale = one piece |
 
 Ice cream is **manual**, not resale. It sells on the POS, but that sale only
 records revenue — you enter the usage when a can finishes.
@@ -143,7 +143,7 @@ touching the count itself.
   adding a second one.
 - **Deleting a count** falls back to the previous count, or to recorded usage when
   there is none.
-- **Water is resale**: POS sales after the count keep reducing it, so a count
+- **Water 500ml is resale**: POS sales after the count keep reducing it, so a count
   reconciles POS drift rather than replacing it.
 - Recipe-driven items are not offered. Their usage comes from Measurements ×
   Batches, and a count would contradict that model.
