@@ -471,8 +471,18 @@ function renameItemEverywhere_(renames) {
     if (lastRow < 2) return;
 
     var headers = getHeaders_(sheet);
-    var col = colIndex_(headers, 'Item');
-    if (col < 0) return;
+
+    // The column name differs per sheet (`Item Name` vs `Item`). Reading it from
+    // config rather than assuming one name is what stops ItemMaster being skipped.
+    var columnName = ITEM_NAME_COLUMNS[sheetName];
+    var col = colIndex_(headers, columnName);
+
+    // Fail loudly in the log rather than silently skipping: a sheet that should
+    // have been renamed but was not is exactly how the two-Water bug survived.
+    if (col < 0) {
+      result.unknown.push(sheetName + ' has no "' + columnName + '" column — not renamed');
+      return;
+    }
 
     var lastCol = sheet.getLastColumn();
     var values = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();

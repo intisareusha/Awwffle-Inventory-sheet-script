@@ -62,10 +62,23 @@ var ITEM_RENAMES = [
   { from: 'Water', to: 'Water 500ml' }
 ];
 
-/** Sheets that store an item name in an `Item` column. */
-var ITEM_NAME_SHEETS = [
-  'ItemMaster', 'Bazar', 'OpeningStock', 'Adjustments'
-];
+/**
+ * Sheets that store an item name, and the column it lives in.
+ *
+ * The column name is NOT the same everywhere: ItemMaster calls it `Item Name`,
+ * every transaction sheet calls it `Item`. Assuming one name silently skipped
+ * ItemMaster, so the catalogue kept the old spelling while the history was
+ * renamed — the item then appeared twice in every dropdown.
+ */
+var ITEM_NAME_COLUMNS = {
+  ItemMaster: 'Item Name',
+  Bazar: 'Item',
+  OpeningStock: 'Item',
+  Adjustments: 'Item'
+};
+
+/** Sheets that store an item name in a column (keys of ITEM_NAME_COLUMNS). */
+var ITEM_NAME_SHEETS = ['ItemMaster', 'Bazar', 'OpeningStock', 'Adjustments'];
 
 /**
  * Preparations, in the required order (README §3.2).

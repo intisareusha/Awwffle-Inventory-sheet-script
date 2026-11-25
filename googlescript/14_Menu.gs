@@ -234,16 +234,34 @@ function menuApplyItemGroups() {
 function menuRepairDuplicateItems() {
   var ui = SpreadsheetApp.getUi();
 
-  // Report before deleting, so the owner sees exactly what will go.
+  // Step 1: apply the configured renames. This is what an earlier version failed
+  // to do for ItemMaster, which is why the old name survived beside the new one.
+  // Safe to run repeatedly: once renamed there is nothing left to match.
+  var renamed = renameItemEverywhere_(ITEM_RENAMES);
+
+  // Rename only ever rewrites a name, never a row, so it needs no preview. A
+  // broken column mapping is reported rather than passed over silently.
+  var mappingErrors = renamed.unknown || [];
+
+  // Step 2: report duplicates before deleting any.
   var preview = cleanupDuplicateItemRowsPreview_();
 
-  if (!preview.remove.length && !preview.suspicious.length) {
+  if (!renamed.changed.length && !preview.remove.length && !preview.suspicious.length) {
     ui.alert('Repair duplicate items',
-      'No duplicate item rows found. Nothing to do.', ui.ButtonSet.OK);
+      'Nothing to do — no renames pending and no duplicate rows found.', ui.ButtonSet.OK);
     return;
   }
 
   var lines = [];
+
+  if (renamed.changed.length) {
+    lines.push(renamed.changed.length + ' row(s) to rename:', '');
+    renamed.changed.forEach(function (c) {
+      lines.push('  ' + c.sheet + ' row ' + c.row + ': ' + c.from + ' -> ' + c.to);
+    });
+    lines.push('');
+  }
+
   if (preview.remove.length) {
     lines.push(preview.remove.length + ' duplicate row(s) to remove:', '');
     preview.remove.forEach(function (d) {
@@ -252,6 +270,7 @@ function menuRepairDuplicateItems() {
     lines.push('', 'The kept row is the original one, with your rates and settings.',
       'No purchase, count or sales history is touched.', '');
   }
+
   if (preview.suspicious.length) {
     lines.push('Left alone — same name but not a rename duplicate:', '');
     preview.suspicious.forEach(function (d) {
@@ -259,23 +278,34 @@ function menuRepairDuplicateItems() {
     });
     lines.push('');
   }
+
+  if (mappingErrors.length) {
+    lines.push('Could not rename these sheets:', '');
+    mappingErrors.forEach(function (m) { lines.push('  ' + m); });
+    lines.push('');
+  }
+
   lines.push('Continue?');
 
   var answer = ui.alert('Repair duplicate items', lines.join('\n'), ui.ButtonSet.YES_NO);
   if (answer !== ui.Button.YES) return;
 
+  // The rename already ran (above), so only the removal is left to do.
   var res = cleanupDuplicateItemRows_(ITEM_RENAMES);
 
-  var msg = res.removed.length
-    ? res.removed.length + ' duplicate row(s) removed.'
-    : 'Nothing removed.';
+  var msg = [];
+  if (renamed.changed.length) msg.push(renamed.changed.length + ' row(s) renamed.');
+  if (res.removed.length) msg.push(res.removed.length + ' duplicate row(s) removed.');
+  if (!msg.length) msg.push('Nothing removed.');
 
-  try { refreshStockSheet_(); } catch (e) {
-    msg += '\n\nThe Stock view could not be refreshed: ' +
-      (e && e.message ? e.message : String(e));
+  try {
+    refreshStockSheet_();
+  } catch (e) {
+    msg.push('The Stock view could not be refreshed: ' +
+      (e && e.message ? e.message : String(e)));
   }
 
-  ui.alert('Repair duplicate items', msg, ui.ButtonSet.OK);
+  ui.alert('Repair duplicate items', msg.join('\n'), ui.ButtonSet.OK);
 }
 
 /** Dry run of cleanupDuplicateItemRows_, so a menu action can show it first. */

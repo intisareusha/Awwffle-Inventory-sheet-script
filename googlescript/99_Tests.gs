@@ -304,6 +304,18 @@ function testItemMasterIntegrity() {
   eq_(s, 'guard ignores unrelated ID',
     importedUnderOldName_('Flour', { 'MIGRATED-USE-Water': true }), false);
 
+  // Every sheet that stores an item name must have its column mapped. Assuming one
+  // column name (`Item`) silently skipped ItemMaster, which uses `Item Name`, so the
+  // catalogue kept the old spelling and the item appeared twice everywhere.
+  var unmapped = ITEM_NAME_SHEETS.filter(function (sheetName) {
+    return !ITEM_NAME_COLUMNS[sheetName];
+  });
+  eq_(s, 'every item-name sheet has a column', unmapped.join(', '), '');
+  eq_(s, 'ItemMaster uses Item Name', ITEM_NAME_COLUMNS.ItemMaster, 'Item Name');
+  eq_(s, 'Bazar uses Item', ITEM_NAME_COLUMNS.Bazar, 'Item');
+  eq_(s, 'Adjustments uses Item', ITEM_NAME_COLUMNS.Adjustments, 'Item');
+  eq_(s, 'OpeningStock uses Item', ITEM_NAME_COLUMNS.OpeningStock, 'Item');
+
   // Empty Container must not exist (§3.1, §9).
   eq_(s, 'Empty Container absent', findItem_('Empty Container'), null);
 
