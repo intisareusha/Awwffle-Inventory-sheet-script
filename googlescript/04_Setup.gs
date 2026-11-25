@@ -297,6 +297,96 @@ function ensureCustomersSheet_(created, skipped, seeded) {
 // Item master
 // ---------------------------------------------------------------------------
 
+/**
+ * Applies the current ITEMS groups to the live ItemMaster sheet.
+ *
+ * WHY THIS EXISTS
+ * `ensureItemMasterSheet_` seeds only missing rows and never updates an existing
+ * one, so a regroup in code reaches a fresh install but not a sheet that is
+ * already in daily use. Without this, code and sheet disagree: the Manual Stock
+ * form (which reads code) offers Packaging items that the Summary (which reads the
+ * sheet) still reports as Equipments.
+ *
+ * SAFETY
+ *   - Writes the Group column only. No rate, unit, population, ID, threshold or
+ *     note is touched.
+ *   - Matches by normalised item name, never by row number.
+ *   - Never adds or deletes a row.
+ *   - Idempotent: a second run finds nothing to change.
+ *   - Logs every before/after, so a regroup is auditable after the fact.
+ */
+function applyItemGroups_() {
+  var sheet = getSheet_(SHEETS.ITEM_MASTER);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return { ok: false, changed: [], unknown: [], message: 'ItemMaster is empty.' };
+  }
+
+  var headers = getHeaders_(sheet);
+  var nameCol = colIndex_(headers, 'Item Name');
+  var groupCol = colIndex_(headers, 'Group');
+  if (nameCol < 0 || groupCol < 0) {
+    return {
+      ok: false, changed: [], unknown: [],
+      message: 'ItemMaster is missing Item Name or Group. Run setup first.'
+    };
+  }
+
+  var width = sheet.getLastColumn();
+  var values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+
+  var changed = [];
+  var unknown = [];
+
+  values.forEach(function (row, i) {
+    var name = String(row[nameCol] === null ? '' : row[nameCol]).trim();
+    if (!name) return;
+
+    var item = findItem_(name);
+    if (!item) {
+      unknown.push(name);
+      return;
+    }
+
+    var current = String(row[groupCol] === null ? '' : row[groupCol]).trim();
+    if (current === item.group) return;
+
+    values[i][groupCol] = item.group;
+    changed.push({ row: i + 2, name: name, from: current, to: item.group });
+  });
+
+  if (changed.length) {
+    sheet.getRange(2, 1, values.length, width).setValues(values);
+    changed.forEach(function (c) {
+      logEvent_('ITEMGROUP', 'Group changed',
+        c.name + ': ' + (c.from || '(blank)') + ' -> ' + c.to);
+    });
+  }
+
+  if (unknown.length) {
+    logEvent_('ITEMGROUP', 'Unknown item names in ItemMaster', unknown.join(', '));
+  }
+
+  var refresh = null;
+  if (changed.length) {
+    try {
+      refresh = refreshStockSheet_();
+    } catch (e) {
+      refresh = { error: e && e.message ? e.message : String(e) };
+    }
+  }
+
+  return {
+    ok: true,
+    changed: changed,
+    unknown: unknown,
+    refresh: refresh,
+    message: changed.length
+      ? changed.length + ' item(s) regrouped.'
+      : 'Every item already has its current group.'
+  };
+}
+
 function ensureItemMasterSheet_(settings, created, skipped, seeded) {
   var existed = sheetExists_(SHEETS.ITEM_MASTER);
   var sheet = getSheet_(SHEETS.ITEM_MASTER);

@@ -120,10 +120,10 @@ records revenue — you enter the usage when a can finishes.
 
 ## Recording a manual stock count
 
-For Toppings and Equipments the honest figure is the one you can see on the shelf.
-**Awwffle → Daily entry → Record manual stock count** records it.
+For Toppings, Packaging, Equipments and Resale the honest figure is the one you can
+see on the shelf. **Awwffle → Daily entry → Record manual stock count** records it.
 
-1. Pick the group (Toppings or Equipments) and the item.
+1. Pick the group (Toppings, Packaging, Equipments or Resale) and the item.
 2. Enter what is actually left, in the item's own unit.
 3. Save. The count is written to `Adjustments` as a `Count` row and the Stock view
    is rebuilt.

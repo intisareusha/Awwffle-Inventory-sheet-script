@@ -553,6 +553,7 @@ I will keep this table updated so we both know where we stand.
 | Cash in Hand (owner request) | yes | `testCashInHand` passes | reviewed and run | **approved** | not yet (working tree) |
 | 8 — All Time / monthly report sheets | not built as sheets; figures served live by Summary / Daily Waffles | — | — | — | — |
 | 9 — cost comparison / manual counts | partial — cost comparison in Summary; manual stock counts in `13_Adjustments.gs` | suite passes | — | — | — |
+| 9a — regroup: Packaging / Equipments / Resale | yes — `02_ItemMaster.gs`, `00_Config.gs`, `13_Adjustments.gs`, `04_Setup.gs` (`applyItemGroups_`), `14_Menu.gs`, UI order, tests, docs | logic verified against HEAD; syntax checked | awaiting your review | — | not yet (working tree) |
 | 10 — hardening / docs | partial — SETUP, MIGRATION, BAZAR, BATCHES, STOCK, SUMMARY, FINANCE, CASH_IN_HAND present; UPDATE / SHEETS / BACKUP pending | suite passes | — | — | — |
 
 ---
@@ -573,7 +574,7 @@ the current source of truth.*
 | Unit conversion factors | per D7 table | pass |
 | Amounts for 12 workbook rows | exact stored values | pass |
 | All 43 Stock rows (amount + base qty) | 0 mismatches | 0 mismatches |
-| Item count / groups | 43 = 17 + 16 + 10 | pass |
+| Item count / groups | 43 = 17 + 15 + 6 + 4 + 1 | pass |
 | Measurement rows | 17, no Empty Container | pass |
 | POS products | 18, extras first | pass |
 | Alias mapping | 6 aliases resolve, unknown = null | pass |

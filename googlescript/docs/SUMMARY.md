@@ -149,7 +149,7 @@ cost" is now a single figure rather than something to work out by hand.
 
 | Filter | Effect |
 |---|---|
-| Group | Recipes / Toppings / Equipments |
+| Group | Recipes / Toppings / Packaging / Equipments / Resale |
 | Kind | Recipe-driven / Manual / Resale |
 | Item | one item only |
 | Low stock only | items at or below their threshold |

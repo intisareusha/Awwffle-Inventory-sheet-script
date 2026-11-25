@@ -35,8 +35,15 @@ var SHEETS = {
   ALL_TIME: 'AllTime'
 };
 
-/** Groups, in the order they must appear in the item master (README §4). */
-var GROUPS = ['Recipes', 'Toppings', 'Equipments'];
+/**
+ * Groups, in the order they must appear in the item master and every dropdown.
+ *
+ * `Resale` is a group of one (Water). `Packaging` and `Equipments` are split so a
+ * per-waffle packaging cost can be read without the operating supplies
+ * (Room Freshner, Arosole Spray, POS Roll) inflating it. Group is a display and
+ * filter label only — Population still drives every calculation.
+ */
+var GROUPS = ['Recipes', 'Toppings', 'Packaging', 'Equipments', 'Resale'];
 
 /**
  * Preparations, in the required order (README §3.2).

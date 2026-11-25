@@ -361,7 +361,8 @@
     sel.appendChild(all);
 
     // Bucket by category so the expanded list reads in a predictable order:
-    // Recipes, then Toppings, then Equipments. Any unexpected group falls in last.
+    // Recipes, then Toppings, Packaging, Equipments, Resale. Anything unexpected
+    // falls in last rather than vanishing.
     var buckets = {};
     (OPTIONS.items || []).forEach(function (it) {
       if (group && it.group !== group) return;
@@ -369,7 +370,7 @@
       (buckets[g] || (buckets[g] = [])).push(it);
     });
 
-    var order = ['Recipes', 'Toppings', 'Equipments'];
+    var order = ['Recipes', 'Toppings', 'Packaging', 'Equipments', 'Resale'];
     Object.keys(buckets).forEach(function (g) {
       if (order.indexOf(g) === -1) order.push(g);
     });

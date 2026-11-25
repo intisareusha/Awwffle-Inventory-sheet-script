@@ -68,8 +68,6 @@ var ITEMS = [
   { name: 'Chocolate Rice Dark', group: 'Toppings', unit: 'kg', baseUnit: 'gm', rate: 1050, population: POPULATION.MANUAL },
   { name: 'Chocolate Sprinkles', group: 'Toppings', unit: 'gm', baseUnit: 'gm', rate: 1300, population: POPULATION.MANUAL,
     notes: 'Rate is per kg (D7).' },
-  { name: 'Water',              group: 'Toppings', unit: 'p',  baseUnit: 'p',  rate: 8,    population: POPULATION.RESALE,
-    posLink: 'Water 500ml', notes: 'Resale item: one POS sale removes one piece (D/§13.G1).' },
   { name: 'Ice cream (vanilla)',    group: 'Toppings', unit: 'kg', baseUnit: 'gm', rate: 300, population: POPULATION.MANUAL,
     notes: 'Sold on POS but consumed as a topping by hand. POS sales never reduce stock (§13.G1).' },
   { name: 'Ice cream (chocolate)',  group: 'Toppings', unit: 'kg', baseUnit: 'gm', rate: 300, population: POPULATION.MANUAL,
@@ -77,16 +75,22 @@ var ITEMS = [
   { name: 'Ice cream (strawberry)', group: 'Toppings', unit: 'kg', baseUnit: 'gm', rate: 300, population: POPULATION.MANUAL,
     notes: 'Topping stock, entered by hand when a can finishes (§13.G1).' },
 
-  // ---- Equipments / packaging (README §4.3) — manually maintained ----
-  { name: 'Waffle Sticks Large', group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 1.3, population: POPULATION.MANUAL,
+  // ---- Resale (one item) — POS sales drive stock, not a recipe or a count ----
+  { name: 'Water',              group: 'Resale', unit: 'p',  baseUnit: 'p',  rate: 8,    population: POPULATION.RESALE,
+    posLink: 'Water 500ml', notes: 'Resale item: one POS sale removes one piece (D/§13.G1).' },
+
+  // ---- Packaging — per-waffle consumables ----
+  { name: 'Waffle Sticks Large', group: 'Packaging', unit: 'p', baseUnit: 'p', rate: 1.3, population: POPULATION.MANUAL,
     notes: 'Bazar calls this "Waffle Stick" — mapped during migration (§9).' },
-  { name: 'Waffle Box',          group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 5,   population: POPULATION.MANUAL },
-  { name: 'Waffle Tray',         group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 5.9, population: POPULATION.MANUAL },
-  { name: 'Bento Box',           group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 5,   population: POPULATION.MANUAL },
-  { name: 'One Time box',        group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 3.5, population: POPULATION.MANUAL },
-  { name: 'Poly bag',            group: 'Equipments', unit: 'kg', baseUnit: 'gm', rate: 274, population: POPULATION.MANUAL,
+  { name: 'Waffle Box',          group: 'Packaging', unit: 'p', baseUnit: 'p', rate: 5,   population: POPULATION.MANUAL },
+  { name: 'Waffle Tray',         group: 'Packaging', unit: 'p', baseUnit: 'p', rate: 5.9, population: POPULATION.MANUAL },
+  { name: 'Bento Box',           group: 'Packaging', unit: 'p', baseUnit: 'p', rate: 5,   population: POPULATION.MANUAL },
+  { name: 'Poly bag',            group: 'Packaging', unit: 'kg', baseUnit: 'gm', rate: 274, population: POPULATION.MANUAL,
     notes: 'Canonical name. Bazar had "Poly Bag" (D3).' },
-  { name: 'Tissue',              group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 55,  population: POPULATION.MANUAL },
+  { name: 'Tissue',              group: 'Packaging', unit: 'p', baseUnit: 'p', rate: 55,  population: POPULATION.MANUAL },
+
+  // ---- Equipments — operating supplies, not consumed per waffle ----
+  { name: 'One Time box',        group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 3.5, population: POPULATION.MANUAL },
   { name: 'Room Freshner',       group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 300, population: POPULATION.MANUAL },
   { name: 'Arosole Spray',       group: 'Equipments', unit: 'p', baseUnit: 'p', rate: 8,   population: POPULATION.MANUAL,
     notes: 'Spelling retained from source. Zero stock and zero rate in the source workbook.' },

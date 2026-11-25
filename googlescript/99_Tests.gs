@@ -205,12 +205,30 @@ function testItemMasterIntegrity() {
   }).map(function (i) { return i.name; });
   eq_(s, 'names are trimmed', dirty.join(', '), '');
 
-  // Group counts per README §4.
-  var counts = { Recipes: 0, Toppings: 0, Equipments: 0 };
+  // Group counts. `Equipments` was split into Packaging + Equipments and Water got
+  // its own Resale group; the total must stay 43.
+  var counts = { Recipes: 0, Toppings: 0, Packaging: 0, Equipments: 0, Resale: 0 };
   ITEMS.forEach(function (i) { counts[i.group]++; });
   eq_(s, 'Recipes count', counts.Recipes, 17);
-  eq_(s, 'Toppings count', counts.Toppings, 16);
-  eq_(s, 'Equipments count', counts.Equipments, 10);
+  eq_(s, 'Toppings count', counts.Toppings, 15);
+  eq_(s, 'Packaging count', counts.Packaging, 6);
+  eq_(s, 'Equipments count', counts.Equipments, 4);
+  eq_(s, 'Resale count', counts.Resale, 1);
+
+  // Every item's group must be one the system knows, or it silently vanishes from
+  // dropdowns and the Manual Stock form.
+  var badGroups = ITEMS.filter(function (i) {
+    return GROUPS.indexOf(i.group) === -1;
+  }).map(function (i) { return i.name + ':' + i.group; });
+  eq_(s, 'all groups are known', badGroups.join(', '), '');
+
+  // Population is what drives the maths, so a regroup must not have moved any.
+  eq_(s, 'Recipes are recipe-driven',
+    ITEMS.filter(function (i) { return i.group === 'Recipes'; })
+      .every(function (i) { return i.population === POPULATION.RECIPE; }), true);
+  eq_(s, 'only Water is resale',
+    ITEMS.filter(function (i) { return i.population === POPULATION.RESALE; })
+      .map(function (i) { return i.name; }).join(','), 'Water');
 
   // Every item has a valid unit and base unit.
   var badUnits = ITEMS.filter(function (i) {
@@ -1795,6 +1813,19 @@ function testManualCounts() {
   eq_(s, 'Oreo is countable', isCountableItem_(oreo), true);
   eq_(s, 'Water (resale) is countable', isCountableItem_(findItem_('Water')), true);
   eq_(s, 'Nutella (recipe) is not countable', isCountableItem_(findItem_('Nutella')), false);
+
+  // Every non-recipe item must stay countable after the Packaging/Resale split.
+  // A missing group here is a silent disappearance from the count form.
+  var notCountable = ITEMS.filter(function (i) {
+    return i.population !== POPULATION.RECIPE && !isCountableItem_(i);
+  }).map(function (i) { return i.name + ':' + i.group; });
+  eq_(s, 'all non-recipe items are countable', notCountable.join(', '), '');
+
+  // 26 = 43 items - 17 recipe-driven. Toppings 15 + Packaging 6 + Equipments 4
+  // + Resale 1.
+  eq_(s, 'countable item total', ITEMS.filter(function (i) {
+    return isCountableItem_(i);
+  }).length, 26);
 
   // The sidebar calls these by name through google.script.run, so they must stay
   // public (no trailing underscore).

@@ -96,7 +96,7 @@ The matrix is 17 ingredients × 5 preparations, with blanks meaning "not used in
 - Do not silently allow inventory to become negative. Flag it clearly and explain the cause.
 - Three distinct item populations exist and must be handled differently (see §17.3 and §13.G1):
   - **Recipe-driven items** (Recipes group): consumption derives from Measurements × Batches. These have an Est. Batch figure.
-  - **Manually maintained items** (Toppings and Equipments/packaging groups): consumption is entered by hand for now, because no per-waffle usage pattern has been established. Est. Batch is intentionally blank for these. The design must not break when a pattern later emerges and a real recipe is added for one of them.
+  - **Manually maintained items** (Toppings, Packaging and Equipments groups): consumption is entered by hand for now, because no per-waffle usage pattern has been established. Est. Batch is intentionally blank for these. The design must not break when a pattern later emerges and a real recipe is added for one of them.
   - **Resale products** (`Water 500ml`): one POS sale of the product consumes exactly one unit of the matching stock item. Stock is reduced from the POS counter, not from a recipe. This is the only product whose sales drive ingredient stock directly, and it must be wired as an explicit link between a POS product and a stock item rather than inferred from a matching name.
 - The three `Ice cream (…)` items are **not** resale products despite being sold standalone. They are topping stock: the POS sale records revenue only, and the owner enters the quantity consumed by hand when a can is finished, exactly like the other toppings (`§13.G1`). A POS sale of ice cream must never reduce the ice cream stock row.
 
@@ -143,20 +143,42 @@ The following groups, names, spelling, and order are supplied as the required st
 15. Ice cream (chocolate)
 16. Ice cream (strawberry)
 
-### 4.3 Equipments / packaging and operating supplies
+### 4.3 Packaging and equipment / operating supplies
+
+The original single `Equipments` group is **split in two** so packaging cost can be
+read on its own without operating supplies inflating it. Item names, order, units and
+rates are unchanged; only the group label moves.
+
+**Packaging** — consumed per waffle:
 
 1. Waffle Sticks Large
 2. Waffle Box
 3. Waffle Tray
 4. Bento Box
-5. One Time box
-6. Poly bag
-7. Tissue
+5. Poly bag
+6. Tissue
+
+**Equipments** — operating supplies, not consumed per waffle:
+
+7. One Time box
 8. Room Freshner
 9. Arosole Spray
 10. POS Roll
 
-The group label `Equipments` is retained as supplied, although the items include packaging and consumables as well as equipment.
+`One Time box` stays in Equipments because it is a staff item, not customer packaging.
+
+### 4.4 Group labels
+
+Five groups, in this order: `Recipes`, `Toppings`, `Packaging`, `Equipments`, `Resale`.
+
+`Water` carries the `Resale` group (a group of one). **Group is a display and filter
+label only** — every calculation is driven by an item's `Population`, not its group
+(§3.3, §17.3). Regrouping therefore cannot change recipe cost, stock valuation, cash
+or any historical record.
+
+A consequence that must not be overlooked: every non-recipe group must appear in
+`MANUAL_STOCK_GROUPS`, or its items silently vanish from the Manual Stock form and
+their usage then reads low.
 
 ## 5. Bazar / purchasing / expense ledger
 
@@ -727,7 +749,7 @@ These are settled. Implement them as written; they are not open questions and mu
 
 ## C. Bazar, inventory, and units
 
-17. **Every item in the Recipes, Toppings, and Equipments groups is inventory-managed.** None of them are pure non-stock expenses.
+17. **Every item in the Recipes, Toppings, Packaging, Equipments and Resale groups is inventory-managed.** None of them are pure non-stock expenses.
 18. **Bazar categories are two fields, not one:** the item/expense name, and an expense type. Expense types are `Inventory purchase`, `Salary`, `Courier`, `Maintenance`, `Other`. Selecting `Other` reveals a free-text field to name it.
 19. **Inventory purchase items use the canonical item names from the Stock sheet.** Non-inventory expenses (Salary, Courier, Maintenance) are recorded without any stock impact.
 20. **One canonical name per item across the whole system.** No aliases, no variant spellings, no per-sheet naming. Purchase records, stock records, and reports all use the same name. The Stock sheet's names are the master list; the POS product names follow the Daily Waffles list. Where these two differ (e.g. `Kitkat` vs `Kit-Kat Kraze`) they are different things and must not be merged — one is an ingredient, the other is a finished product.
@@ -972,9 +994,14 @@ Two structural details worth preserving exactly:
 
 | population | items | consumption source | Est. Batch |
 |---|---|---|---|
-| Recipe-driven | 17 (rows 2–18) | Measurements × Batches, automatic | computed |
-| Manually maintained | 26 (rows 19–44) | typed Total Used | blank by design |
+| Recipe-driven | 17 | Measurements × Batches, automatic | computed |
+| Manually maintained | 25 | typed Total Used / physical counts | blank by design |
 | Resale product | `Water` / `Water 500ml` | POS unit sales, 1 sale = 1 piece, automatic | blank by design |
+
+Within those populations the 43 items are labelled by group: `Recipes` 17, `Toppings` 15,
+`Packaging` 6, `Equipments` 4, `Resale` 1 (§4.4). **Group is a label; population is the
+behaviour.** The 25 manually maintained items are the 15 Toppings + 6 Packaging + 4
+Equipments; Water is deliberately not among them because its movement comes from POS sales.
 
 The rationale is that toppings and packaging have no established per-waffle pattern yet. This is deliberate, not a gap. The design must allow a manual item to be promoted to a recipe-driven item later without restructuring anything.
 

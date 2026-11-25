@@ -39,6 +39,11 @@ function installMenu_() {
   menu.addItem('Check stock valuation', 'menuVerifyStock');
   menu.addSeparator();
 
+  // One-off maintenance. Idempotent, so leaving it here is harmless and lets the
+  // owner re-apply a regroup after pasting updated files.
+  menu.addItem('Apply item groups', 'menuApplyItemGroups');
+  menu.addSeparator();
+
   // Later phases add their entries here. Items are added as each phase lands so
   // the menu never offers something that does not work yet.
   menu.addItem('System info', 'menuShowSystemInfo');
@@ -174,4 +179,46 @@ function menuVerifyStock() {
     lines.push('  ... and ' + (check.failures.length - 8) + ' more');
   }
   ui.alert('Stock valuation — PROBLEM', lines.join('\n'), ui.ButtonSet.OK);
+}
+
+/**
+ * Applies the item groups currently defined in code to the live ItemMaster sheet.
+ *
+ * Group is a label, so this changes no figure. It exists because setup never
+ * rewrites an existing row, so a regroup in code would otherwise never reach a
+ * sheet that is already in use.
+ */
+function menuApplyItemGroups() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'Apply item groups',
+    'Sets the Group column from the item catalogue (Recipes, Toppings, ' +
+    'Packaging, Equipments, Resale).\n\n' +
+    'Only Group changes. No rate, unit, quantity or history is touched.\n\nContinue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  var res = applyItemGroups_();
+
+  if (!res.ok) {
+    ui.alert('Apply item groups', res.message, ui.ButtonSet.OK);
+    return;
+  }
+
+  var lines = [res.message, ''];
+  if (res.changed.length) {
+    res.changed.forEach(function (c) {
+      lines.push('  ' + c.name + ': ' + (c.from || '(blank)') + ' -> ' + c.to);
+    });
+  }
+  if (res.unknown.length) {
+    lines.push('', 'Not in the item catalogue (left alone):');
+    res.unknown.forEach(function (n) { lines.push('  ' + n); });
+  }
+  if (res.refresh && res.refresh.error) {
+    lines.push('', 'Stock view refresh failed: ' + res.refresh.error);
+  }
+
+  ui.alert('Apply item groups', lines.join('\n'), ui.ButtonSet.OK);
 }

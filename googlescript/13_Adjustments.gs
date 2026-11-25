@@ -28,8 +28,15 @@
  * excluded here rather than allowed to contradict it.
  */
 
-/** Groups the count form offers. Recipe-driven items are deliberately absent. */
-var MANUAL_STOCK_GROUPS = ['Toppings', 'Equipments'];
+/**
+ * Groups the count form offers. Recipe-driven items are deliberately absent.
+ *
+ * Every non-recipe group must be listed here, or its items silently disappear
+ * from the Manual Stock form and their usage then reads low. `Resale` is included
+ * because Water still needs counting: POS sales explain most of its movement, but
+ * a physical count is what reconciles the shelf.
+ */
+var MANUAL_STOCK_GROUPS = ['Toppings', 'Packaging', 'Equipments', 'Resale'];
 
 // ---------------------------------------------------------------------------
 // Public API for the sidebar
