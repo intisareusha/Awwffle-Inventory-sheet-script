@@ -17,6 +17,7 @@ function runAllTests() {
     testUnitConversion,
     testAmountsMatchWorkbook,
     testItemMasterIntegrity,
+    testGroupOrdering,
     testAliasMapping,
     testDateHelpers,
     testMeasurementMatrix,
@@ -285,6 +286,50 @@ function testItemMasterIntegrity() {
   eq_(s, 'last product is Awwffle', POS_PRODUCTS[POS_PRODUCTS.length - 1].name, 'Awwffle');
   eq_(s, 'waffle count', POS_PRODUCTS.filter(function (p) { return p.kind === 'waffle'; }).length, 12);
   eq_(s, 'extra count', POS_PRODUCTS.filter(function (p) { return p.kind === 'extra'; }).length, 6);
+
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Group ordering — every dropdown must follow the catalogue, not the alphabet
+// ---------------------------------------------------------------------------
+
+/**
+ * A dropdown built from `Object.keys().sort()` reads Equipments, Packaging,
+ * Recipes, Resale, Toppings — which is not the order the shop thinks in, and not
+ * the order the README specifies. The order is a product decision, so it gets an
+ * assertion rather than a comment.
+ */
+function testGroupOrdering() {
+  var s = newSuite_();
+
+  eq_(s, 'GROUPS order', GROUPS.join(' > '),
+    'Recipes > Toppings > Packaging > Equipments > Resale');
+
+  // Every group in the catalogue must be reachable from GROUPS, or it is dropped
+  // from a filter instead of shown.
+  var missing = [];
+  ITEMS.forEach(function (i) {
+    if (GROUPS.indexOf(i.group) === -1 && missing.indexOf(i.group) === -1) {
+      missing.push(i.group);
+    }
+  });
+  eq_(s, 'every item group is in GROUPS', missing.join(', '), '');
+
+  // The ordering helper used by the Summary dropdown: catalogue order first, then
+  // anything unexpected, never alphabetical.
+  var present = { Packaging: true, Recipes: true, Toppings: true };
+  var ordered = GROUPS.filter(function (g) { return present[g]; });
+  eq_(s, 'filtered order keeps catalogue order',
+    ordered.join(' > '), 'Recipes > Toppings > Packaging');
+
+  // A group the catalogue does not know must still be appended, not silently lost.
+  present = { Recipes: true, Mystery: true };
+  ordered = GROUPS.filter(function (g) { return present[g]; });
+  Object.keys(present).forEach(function (g) {
+    if (ordered.indexOf(g) === -1) ordered.push(g);
+  });
+  eq_(s, 'unknown group appended last', ordered.join(' > '), 'Recipes > Mystery');
 
   return s;
 }

@@ -95,8 +95,16 @@ function getSummaryOptions_() {
     return { name: String(r['Item Name']), group: String(r['Group']) };
   }).filter(function (i) { return i.name; });
 
+  // Groups in the catalogue's own order (README §4.4), not alphabetically — an
+  // alphabetical list would read Equipments, Packaging, Recipes, Resale, Toppings.
+  // Any group present in the sheet but unknown to the catalogue is appended, so a
+  // stray value is visible rather than dropped from the filter.
   var groups = {};
-  items.forEach(function (i) { groups[i.group] = true; });
+  items.forEach(function (i) { if (i.group) groups[i.group] = true; });
+  var groupList = GROUPS.filter(function (g) { return groups[g]; });
+  Object.keys(groups).forEach(function (g) {
+    if (groupList.indexOf(g) === -1) groupList.push(g);
+  });
 
   var bazarItemList = Object.keys(bazarItems).map(function (k) { return bazarItems[k]; })
     .sort(function (a, b) {
@@ -116,7 +124,7 @@ function getSummaryOptions_() {
     dataEnd: all.length ? dateKey_(all[all.length - 1]) : '',
     thisMonthStart: dateKey_(thisMonthStart),
     items: items,
-    groups: Object.keys(groups).sort(),
+    groups: groupList,
     preparations: PREPARATIONS.slice(),
     populations: [POPULATION.RECIPE, POPULATION.MANUAL, POPULATION.RESALE],
     bazarTypes: Object.keys(bazarTypes).sort(),

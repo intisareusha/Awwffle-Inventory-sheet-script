@@ -465,18 +465,33 @@
         '<div><label>Amount</label><div class="amount">0.00</div></div>';
 
       var itemSel = body.querySelector('.item');
+      // Group the item list the same way the Stock filter does, in the catalogue's
+      // order. Without this the optgroups appear in whatever order the ItemMaster
+      // rows happen to be in, which is not the order the owner thinks in.
       var groups = {};
       OPTIONS.items.forEach(function (it) {
-        if (!groups[it.group]) {
-          groups[it.group] = document.createElement('optgroup');
-          groups[it.group].label = it.group;
-          itemSel.appendChild(groups[it.group]);
-        }
-        var o = document.createElement('option');
-        o.value = it.name; o.textContent = it.name;
-        o.dataset.unit = it.unit;
-        o.dataset.rate = it.latestRate == null ? '' : it.latestRate;
-        groups[it.group].appendChild(o);
+        var g = it.group || '';
+        (groups[g] || (groups[g] = [])).push(it);
+      });
+
+      var groupOrder = (OPTIONS.groups || []);
+      Object.keys(groups).forEach(function (g) {
+        if (groupOrder.indexOf(g) === -1) groupOrder.push(g);
+      });
+
+      groupOrder.forEach(function (g) {
+        var list = groups[g];
+        if (!list || !list.length) return;
+        var og = document.createElement('optgroup');
+        og.label = g || '(no group)';
+        list.forEach(function (it) {
+          var o = document.createElement('option');
+          o.value = it.name; o.textContent = it.name;
+          o.dataset.unit = it.unit;
+          o.dataset.rate = it.latestRate == null ? '' : it.latestRate;
+          og.appendChild(o);
+        });
+        itemSel.appendChild(og);
       });
 
       var unitSel = body.querySelector('.unit');

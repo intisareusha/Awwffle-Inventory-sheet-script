@@ -124,6 +124,9 @@ function getBazarFormOptions_() {
 
   return {
     items: items,
+    // The catalogue's group order, so the item optgroups render predictably
+    // (Recipes, Toppings, Packaging, Equipments, Resale) instead of in sheet order.
+    groups: GROUPS.slice(),
     expenseTypes: expenseTypes,
     units: ENTRY_UNITS,
     statuses: BAZAR_STATUSES,

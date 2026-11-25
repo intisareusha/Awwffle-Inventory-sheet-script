@@ -41,6 +41,15 @@ function setupSpreadsheet_() {
   // 3. Item master
   ensureItemMasterSheet_(settings, created, skipped, seeded);
 
+  // 3b. Bring the live Group column in line with the catalogue.
+  //
+  // Setup seeds only MISSING items and never rewrites an existing row, so a
+  // regroup in code would otherwise never reach a sheet already in daily use —
+  // and the Summary, Bazar and Stock dropdowns all read Group from this sheet.
+  // Running it here means a regroup is applied by the setup itself, instead of
+  // depending on the owner remembering a separate menu item.
+  var groupSync = applyItemGroups_();
+
   // 4. All remaining source sheets, except those with dedicated handlers below
   //    (settings, expense types, item master, POS products, customers).
   var handledSeparately = [
@@ -85,8 +94,18 @@ function setupSpreadsheet_() {
     seeded.length + ' seeded'
   ].join(', ');
 
+  if (groupSync && groupSync.changed && groupSync.changed.length) {
+    summary += ', ' + groupSync.changed.length + ' regrouped';
+  }
+
   logEvent_('SETUP', 'Setup completed', summary);
-  return { created: created, skipped: skipped, seeded: seeded, summary: summary };
+  return {
+    created: created,
+    skipped: skipped,
+    seeded: seeded,
+    regrouped: groupSync && groupSync.changed ? groupSync.changed : [],
+    summary: summary
+  };
 }
 
 // ---------------------------------------------------------------------------
